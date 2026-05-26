@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   ArrowLeft,
@@ -7,28 +7,32 @@ import {
   CheckCircle2,
   Code2,
   DatabaseZap,
+  Edit3,
   ExternalLink,
   Filter,
   Heart,
   History,
   Languages,
+  LayoutDashboard,
   LayoutGrid,
   ListFilter,
   LogIn,
   LogOut,
   MessagesSquare,
   Network,
+  Plus,
   Search,
   ServerCog,
   ShieldCheck,
   Sparkles,
   Star,
   TerminalSquare,
+  Trash2,
   UserCircle,
   WandSparkles,
   X
 } from "lucide-react";
-import { allTags, categories, stations } from "./data/stations";
+import { api, clearSession, getStoredSession, storeSession } from "./api";
 import "./styles.css";
 
 const iconMap = {
@@ -42,131 +46,231 @@ const iconMap = {
   TerminalSquare
 };
 
-const demoUser = {
-  name: "AzureKiln User",
-  email: "demo@azurekiln.ai"
+const emptyStation = {
+  id: "",
+  name: "",
+  tagline: "",
+  description: "",
+  url: "",
+  category: "API 接入",
+  tags: [],
+  models: [],
+  region: "Global",
+  latency: 100,
+  uptime: "99.9%",
+  status: "online",
+  security: [],
+  pricing: "待定",
+  launchLabel: "点击直达",
+  icon: "ServerCog",
+  accent: "blue",
+  featured: false,
+  score: 90,
+  apiShape: "OpenAI Compatible",
+  useCases: [],
+  docs: ""
 };
 
-function readJson(key, fallback) {
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-function writeJson(key, value) {
-  localStorage.setItem(key, JSON.stringify(value));
-}
-
-function usePersistedState(key, fallback) {
-  const [value, setValue] = useState(() => readJson(key, fallback));
-  const update = (next) => {
-    setValue((current) => {
-      const resolved = typeof next === "function" ? next(current) : next;
-      writeJson(key, resolved);
-      return resolved;
-    });
-  };
-  return [value, update];
-}
-
 function App() {
+  const storedSession = getStoredSession();
   const [view, setView] = useState("explore");
-  const [selectedStationId, setSelectedStationId] = useState(stations[0].id);
+  const [stations, setStations] = useState([]);
+  const [favorites, setFavorites] = useState([]);
+  const [recentIds, setRecentIds] = useState(() => readJson("azurekiln:recent", []));
+  const [selectedStationId, setSelectedStationId] = useState("");
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("全部");
   const [activeTags, setActiveTags] = useState([]);
-  const [favorites, setFavorites] = usePersistedState("azurekiln:favorites", [
-    "titan-node-omega",
-    "arch-node-x"
-  ]);
-  const [recentIds, setRecentIds] = usePersistedState("azurekiln:recent", []);
-  const [user, setUser] = usePersistedState("azurekiln:user", null);
+  const [user, setUser] = useState(storedSession.user);
+  const [apiError, setApiError] = useState("");
+  const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState("");
 
+  useEffect(() => {
+    refreshStations();
+  }, []);
+
+  useEffect(() => {
+    if (user) {
+      refreshFavorites();
+    } else {
+      setFavorites([]);
+    }
+  }, [user]);
+
+  const categories = useMemo(
+    () => ["全部", ...Array.from(new Set(stations.map((station) => station.category))).sort()],
+    [stations]
+  );
+
+  const allTags = useMemo(
+    () =>
+      Array.from(new Set(stations.flatMap((station) => station.tags || []))).sort((a, b) =>
+        a.localeCompare(b, "zh-CN")
+      ),
+    [stations]
+  );
+
   const selectedStation = stations.find((station) => station.id === selectedStationId) || stations[0];
-  const favoriteStations = stations.filter((station) => favorites.includes(station.id));
-  const recentStations = recentIds
-    .map((id) => stations.find((station) => station.id === id))
-    .filter(Boolean)
-    .slice(0, 4);
+  const favoriteIds = favorites.map((station) => station.id);
+  const recentStations = recentIds.map((id) => stations.find((station) => station.id === id)).filter(Boolean);
 
   const filteredStations = useMemo(() => {
     const keyword = query.trim().toLowerCase();
     return stations.filter((station) => {
-      const matchesKeyword =
-        !keyword ||
-        [station.name, station.tagline, station.description, station.category, station.region, ...station.tags, ...station.models]
-          .join(" ")
-          .toLowerCase()
-          .includes(keyword);
-      const matchesCategory = category === "全部" || station.category === category;
-      const matchesTags = activeTags.length === 0 || activeTags.every((tag) => station.tags.includes(tag));
-      return matchesKeyword && matchesCategory && matchesTags;
+      const haystack = [
+        station.name,
+        station.tagline,
+        station.description,
+        station.category,
+        station.region,
+        ...(station.tags || []),
+        ...(station.models || [])
+      ]
+        .join(" ")
+        .toLowerCase();
+      return (
+        (!keyword || haystack.includes(keyword)) &&
+        (category === "全部" || station.category === category) &&
+        (activeTags.length === 0 || activeTags.every((tag) => station.tags.includes(tag)))
+      );
     });
-  }, [activeTags, category, query]);
+  }, [activeTags, category, query, stations]);
+
+  async function refreshStations() {
+    setLoading(true);
+    try {
+      const data = await api("/api/stations");
+      setStations(data.stations);
+      setSelectedStationId((current) => current || data.stations[0]?.id || "");
+      setApiError("");
+    } catch (error) {
+      setApiError(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function refreshFavorites() {
+    try {
+      const data = await api("/api/favorites");
+      setFavorites(data.stations);
+    } catch (error) {
+      showToast(error.message);
+    }
+  }
 
   function showToast(message) {
     setToast(message);
     window.clearTimeout(showToast.timer);
-    showToast.timer = window.setTimeout(() => setToast(""), 2200);
+    showToast.timer = window.setTimeout(() => setToast(""), 2400);
+  }
+
+  function saveRecent(stationId) {
+    setRecentIds((current) => {
+      const next = [stationId, ...current.filter((id) => id !== stationId)].slice(0, 8);
+      writeJson("azurekiln:recent", next);
+      return next;
+    });
   }
 
   function openDetail(stationId) {
     setSelectedStationId(stationId);
-    setRecentIds((current) => [stationId, ...current.filter((id) => id !== stationId)].slice(0, 8));
+    saveRecent(stationId);
     setView("detail");
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  function toggleFavorite(stationId) {
+  async function toggleFavorite(stationId) {
     if (!user) {
       setView("login");
       showToast("请先登录后再收藏中转站");
       return;
     }
-    setFavorites((current) =>
-      current.includes(stationId) ? current.filter((id) => id !== stationId) : [...current, stationId]
-    );
+    try {
+      if (favoriteIds.includes(stationId)) {
+        await api(`/api/favorites/${stationId}`, { method: "DELETE" });
+      } else {
+        await api(`/api/favorites/${stationId}`, { method: "POST" });
+      }
+      await refreshFavorites();
+    } catch (error) {
+      showToast(error.message);
+    }
   }
 
   function toggleTag(tag) {
     setActiveTags((current) => (current.includes(tag) ? current.filter((item) => item !== tag) : [...current, tag]));
   }
 
-  function login(event) {
+  async function login(event) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    const email = String(form.get("email") || demoUser.email).trim() || demoUser.email;
-    setUser({ ...demoUser, email, name: email.split("@")[0] || demoUser.name });
-    setView("explore");
-    showToast("登录成功，收藏与最近访问会保存在本地");
+    try {
+      const session = await api("/api/auth/login", {
+        method: "POST",
+        body: JSON.stringify({
+          email: String(form.get("email") || "").trim(),
+          password: String(form.get("password") || "")
+        })
+      });
+      storeSession(session);
+      setUser(session.user);
+      setView(session.user.role === "admin" ? "admin" : "explore");
+      showToast(session.user.role === "admin" ? "管理员登录成功" : "登录成功");
+    } catch (error) {
+      showToast(error.message);
+    }
   }
 
   function logout() {
+    clearSession();
     setUser(null);
+    setFavorites([]);
+    setView("explore");
     showToast("已退出登录");
   }
 
   function directLaunch(station) {
-    setRecentIds((current) => [station.id, ...current.filter((id) => id !== station.id)].slice(0, 8));
+    saveRecent(station.id);
     window.open(station.url, "_blank", "noopener,noreferrer");
+  }
+
+  async function saveStation(station) {
+    const method = stations.some((item) => item.id === station.id) ? "PUT" : "POST";
+    const path = method === "PUT" ? `/api/admin/stations/${station.id}` : "/api/admin/stations";
+    await api(path, {
+      method,
+      body: JSON.stringify(station)
+    });
+    await refreshStations();
+    showToast("中转站已保存");
+  }
+
+  async function deleteStation(stationId) {
+    await api(`/api/admin/stations/${stationId}`, { method: "DELETE" });
+    await refreshStations();
+    await refreshFavorites();
+    showToast("中转站已删除");
   }
 
   return (
     <div className="app-shell">
       <Header view={view} setView={setView} user={user} logout={logout} favoriteCount={favorites.length} />
       <main className="main-layout">
-        {view === "explore" && (
+        {apiError && <ApiNotice message={apiError} onRetry={refreshStations} />}
+        {loading && <div className="loading-card">正在从 MySQL API 加载中转站...</div>}
+        {!loading && !apiError && view === "explore" && (
           <ExploreView
             activeTags={activeTags}
+            allTags={allTags}
+            categories={categories}
             category={category}
-            favoriteIds={favorites}
+            favoriteIds={favoriteIds}
             filteredStations={filteredStations}
             query={query}
             recentStations={recentStations}
+            stations={stations}
             setActiveTags={setActiveTags}
             setCategory={setCategory}
             setQuery={setQuery}
@@ -176,10 +280,10 @@ function App() {
             directLaunch={directLaunch}
           />
         )}
-        {view === "detail" && (
+        {!loading && !apiError && view === "detail" && selectedStation && (
           <DetailView
             station={selectedStation}
-            isFavorite={favorites.includes(selectedStation.id)}
+            isFavorite={favoriteIds.includes(selectedStation.id)}
             onBack={() => setView("explore")}
             onFavorite={() => toggleFavorite(selectedStation.id)}
             directLaunch={directLaunch}
@@ -189,10 +293,10 @@ function App() {
             openDetail={openDetail}
           />
         )}
-        {view === "favorites" && (
+        {!loading && !apiError && view === "favorites" && (
           <FavoritesView
             user={user}
-            favoriteStations={favoriteStations}
+            favoriteStations={favorites}
             recentStations={recentStations}
             openDetail={openDetail}
             directLaunch={directLaunch}
@@ -201,8 +305,17 @@ function App() {
           />
         )}
         {view === "login" && <LoginView login={login} setView={setView} />}
+        {!loading && !apiError && view === "admin" && (
+          <AdminView
+            user={user}
+            stations={stations}
+            saveStation={saveStation}
+            deleteStation={deleteStation}
+            setView={setView}
+          />
+        )}
       </main>
-      <MobileNav view={view} setView={setView} favoriteCount={favorites.length} />
+      <MobileNav view={view} setView={setView} favoriteCount={favorites.length} isAdmin={user?.role === "admin"} />
       <Footer />
       {toast && <div className="toast">{toast}</div>}
     </div>
@@ -224,16 +337,19 @@ function Header({ view, setView, user, logout, favoriteCount }) {
           <NavButton active={view === "favorites"} onClick={() => setView("favorites")}>
             我的收藏 <span className="nav-count">{favoriteCount}</span>
           </NavButton>
-          <a className="nav-link" href="#status">
-            状态监控
-          </a>
+          {user?.role === "admin" && (
+            <NavButton active={view === "admin"} onClick={() => setView("admin")}>
+              管理后台
+            </NavButton>
+          )}
         </nav>
         <div className="header-actions">
           {user ? (
             <>
-              <button className="user-pill" onClick={() => setView("favorites")}>
+              <button className="user-pill" onClick={() => setView(user.role === "admin" ? "admin" : "favorites")}>
                 <UserCircle size={18} />
                 <span>{user.name}</span>
+                {user.role === "admin" && <small>ADMIN</small>}
               </button>
               <button className="icon-button" onClick={logout} aria-label="退出登录" title="退出登录">
                 <LogOut size={18} />
@@ -259,13 +375,29 @@ function NavButton({ active, children, onClick }) {
   );
 }
 
+function ApiNotice({ message, onRetry }) {
+  return (
+    <section className="api-notice">
+      <h1>后端 API 尚未连接</h1>
+      <p>{message}</p>
+      <p>请先配置 MySQL，运行 `npm run db:seed`，再运行 `npm run dev`。</p>
+      <button className="primary-button" onClick={onRetry}>
+        重试连接
+      </button>
+    </section>
+  );
+}
+
 function ExploreView({
   activeTags,
+  allTags,
+  categories,
   category,
   favoriteIds,
   filteredStations,
   query,
   recentStations,
+  stations,
   setActiveTags,
   setCategory,
   setQuery,
@@ -287,7 +419,7 @@ function ExploreView({
           </div>
           <h1>统一发现、筛选、收藏和打开你的 AI 中转站</h1>
           <p>
-            按标签、模型、用途和区域快速筛选可靠的中转站。登录后可保存收藏列表，详情页提供性能、价格、安全能力和直达入口。
+            数据现在来自 MySQL。普通用户可以浏览、收藏和直达；管理员登录后可以进入管理后台新增、编辑和删除中转站。
           </p>
         </div>
         <div className="hero-panel" id="status">
@@ -370,7 +502,7 @@ function ExploreView({
       </section>
 
       {filteredStations.length === 0 ? (
-        <EmptyState title="没有找到匹配站点" action="重置筛选" onAction={() => setActiveTags([])} />
+        <EmptyState title="没有找到匹配站点" action="清空筛选" onAction={() => setActiveTags([])} />
       ) : (
         <section className="station-grid">
           {featured && (
@@ -421,7 +553,7 @@ function StationCard({ station, featured = false, isFavorite, onFavorite, onOpen
         </button>
         <span className={`status-pill ${station.status}`}>
           <span />
-          {station.status === "online" ? "Online" : "Degraded"}
+          {station.status === "online" ? "Online" : station.status === "degraded" ? "Degraded" : "Offline"}
         </span>
       </div>
       <p className="station-tagline">{station.tagline}</p>
@@ -517,29 +649,8 @@ function DetailView({ station, isFavorite, onBack, onFavorite, directLaunch, rel
           </div>
         </section>
 
-        <section className="panel-card">
-          <h2>模型兼容</h2>
-          <div className="list-stack">
-            {station.models.map((model) => (
-              <div className="list-item" key={model}>
-                <CheckCircle2 size={18} />
-                <span>{model}</span>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section className="panel-card">
-          <h2>安全与治理</h2>
-          <div className="list-stack">
-            {station.security.map((item) => (
-              <div className="list-item" key={item}>
-                <ShieldCheck size={18} />
-                <span>{item}</span>
-              </div>
-            ))}
-          </div>
-        </section>
+        <InfoPanel title="模型兼容" items={station.models} icon={<CheckCircle2 size={18} />} />
+        <InfoPanel title="安全与治理" items={station.security} icon={<ShieldCheck size={18} />} />
 
         <section className="panel-card">
           <h2>价格与用途</h2>
@@ -572,6 +683,22 @@ function DetailView({ station, isFavorite, onBack, onFavorite, directLaunch, rel
   );
 }
 
+function InfoPanel({ title, items, icon }) {
+  return (
+    <section className="panel-card">
+      <h2>{title}</h2>
+      <div className="list-stack">
+        {items.map((item) => (
+          <div className="list-item" key={item}>
+            {icon}
+            <span>{item}</span>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function FavoritesView({ user, favoriteStations, recentStations, openDetail, directLaunch, toggleFavorite, setView }) {
   if (!user) {
     return (
@@ -579,7 +706,7 @@ function FavoritesView({ user, favoriteStations, recentStations, openDetail, dir
         <div className="auth-card">
           <UserCircle size={42} />
           <h1>登录后查看收藏列表</h1>
-          <p>收藏夹会记录你常用的 AI 中转站，并提供一键直达、最近访问和分类管理。</p>
+          <p>收藏夹现在保存在 MySQL 的 favorites 表中，换浏览器也能跟随账号同步。</p>
           <button className="primary-button" onClick={() => setView("login")}>
             立即登录
             <LogIn size={18} />
@@ -649,27 +776,23 @@ function LoginView({ login, setView }) {
         <div className="login-brand">
           <span className="brand-mark">AK</span>
           <h1>欢迎回来</h1>
-          <p>登录后即可收藏中转站，并保留最近访问记录。</p>
+          <p>管理员账号会进入管理后台；普通账号进入收藏和浏览体验。</p>
         </div>
         <label>
           邮箱
-          <input name="email" type="email" placeholder="name@company.com" defaultValue={demoUser.email} />
+          <input name="email" type="email" placeholder="admin@azurekiln.ai" defaultValue="admin@azurekiln.ai" />
         </label>
         <label>
           密码
           <div className="password-field">
-            <input name="password" type={showPassword ? "text" : "password"} placeholder="demo-password" />
+            <input name="password" type={showPassword ? "text" : "password"} placeholder="admin123456" />
             <button type="button" onClick={() => setShowPassword((value) => !value)}>
               {showPassword ? "隐藏" : "显示"}
             </button>
           </div>
         </label>
         <div className="form-row">
-          <label className="checkbox-label">
-            <input type="checkbox" defaultChecked />
-            保持登录
-          </label>
-          <span>Demo 登录无需真实密码</span>
+          <span>默认管理员：admin@azurekiln.ai / admin123456</span>
         </div>
         <button className="primary-button full" type="submit">
           登录
@@ -677,6 +800,161 @@ function LoginView({ login, setView }) {
         </button>
       </form>
     </section>
+  );
+}
+
+function AdminView({ user, stations, saveStation, deleteStation, setView }) {
+  const [editing, setEditing] = useState(emptyStation);
+  const [saving, setSaving] = useState(false);
+
+  if (!user) {
+    return (
+      <section className="auth-required">
+        <div className="auth-card">
+          <LayoutDashboard size={42} />
+          <h1>请先登录管理员账号</h1>
+          <button className="primary-button" onClick={() => setView("login")}>
+            登录
+          </button>
+        </div>
+      </section>
+    );
+  }
+
+  if (user.role !== "admin") {
+    return (
+      <section className="auth-required">
+        <div className="auth-card">
+          <ShieldCheck size={42} />
+          <h1>只有管理员可以访问管理页</h1>
+          <p>后端接口也会校验 JWT 中的 role，普通用户不能调用新增、编辑、删除接口。</p>
+          <button className="secondary-button" onClick={() => setView("explore")}>
+            返回探索
+          </button>
+        </div>
+      </section>
+    );
+  }
+
+  async function submit(event) {
+    event.preventDefault();
+    setSaving(true);
+    try {
+      await saveStation(editing);
+      setEditing(emptyStation);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section className="admin-layout">
+      <div className="results-header">
+        <div>
+          <h1>管理后台</h1>
+          <p>新增、编辑、删除中转站。所有改动写入 MySQL 的 stations 表。</p>
+        </div>
+        <button className="secondary-button" onClick={() => setEditing(emptyStation)}>
+          <Plus size={18} />
+          新增站点
+        </button>
+      </div>
+
+      <div className="admin-grid">
+        <form className="admin-form panel-card" onSubmit={submit}>
+          <h2>{stations.some((item) => item.id === editing.id) ? "编辑中转站" : "新增中转站"}</h2>
+          <AdminInput label="ID" value={editing.id} onChange={(value) => setEditing({ ...editing, id: slugify(value) })} required />
+          <AdminInput label="名称" value={editing.name} onChange={(value) => setEditing({ ...editing, name: value })} required />
+          <AdminInput label="直达链接" value={editing.url} onChange={(value) => setEditing({ ...editing, url: value })} required />
+          <AdminInput label="一句话描述" value={editing.tagline} onChange={(value) => setEditing({ ...editing, tagline: value })} />
+          <AdminTextarea label="详情描述" value={editing.description} onChange={(value) => setEditing({ ...editing, description: value })} />
+          <div className="admin-form-row">
+            <AdminInput label="分类" value={editing.category} onChange={(value) => setEditing({ ...editing, category: value })} />
+            <AdminInput label="区域" value={editing.region} onChange={(value) => setEditing({ ...editing, region: value })} />
+          </div>
+          <div className="admin-form-row">
+            <AdminInput label="延迟 ms" type="number" value={editing.latency} onChange={(value) => setEditing({ ...editing, latency: Number(value) })} />
+            <AdminInput label="评分" type="number" value={editing.score} onChange={(value) => setEditing({ ...editing, score: Number(value) })} />
+          </div>
+          <div className="admin-form-row">
+            <AdminInput label="可用率" value={editing.uptime} onChange={(value) => setEditing({ ...editing, uptime: value })} />
+            <label>
+              状态
+              <select value={editing.status} onChange={(event) => setEditing({ ...editing, status: event.target.value })}>
+                <option value="online">online</option>
+                <option value="degraded">degraded</option>
+                <option value="offline">offline</option>
+              </select>
+            </label>
+          </div>
+          <AdminInput label="标签（逗号分隔）" value={editing.tags.join(", ")} onChange={(value) => setEditing({ ...editing, tags: splitList(value) })} />
+          <AdminInput label="模型（逗号分隔）" value={editing.models.join(", ")} onChange={(value) => setEditing({ ...editing, models: splitList(value) })} />
+          <AdminInput label="安全能力（逗号分隔）" value={editing.security.join(", ")} onChange={(value) => setEditing({ ...editing, security: splitList(value) })} />
+          <AdminInput label="使用场景（逗号分隔）" value={editing.useCases.join(", ")} onChange={(value) => setEditing({ ...editing, useCases: splitList(value) })} />
+          <div className="admin-form-row">
+            <AdminInput label="价格" value={editing.pricing} onChange={(value) => setEditing({ ...editing, pricing: value })} />
+            <AdminInput label="接口形态" value={editing.apiShape} onChange={(value) => setEditing({ ...editing, apiShape: value })} />
+          </div>
+          <div className="admin-form-row">
+            <AdminInput label="图标" value={editing.icon} onChange={(value) => setEditing({ ...editing, icon: value })} />
+            <AdminInput label="强调色" value={editing.accent} onChange={(value) => setEditing({ ...editing, accent: value })} />
+          </div>
+          <AdminInput label="按钮文案" value={editing.launchLabel} onChange={(value) => setEditing({ ...editing, launchLabel: value })} />
+          <AdminInput label="文档链接" value={editing.docs} onChange={(value) => setEditing({ ...editing, docs: value })} />
+          <label className="checkbox-label admin-checkbox">
+            <input
+              type="checkbox"
+              checked={editing.featured}
+              onChange={(event) => setEditing({ ...editing, featured: event.target.checked })}
+            />
+            设为推荐站点
+          </label>
+          <button className="primary-button full" type="submit" disabled={saving}>
+            {saving ? "保存中..." : "保存到 MySQL"}
+          </button>
+        </form>
+
+        <div className="admin-table panel-card">
+          <h2>站点列表</h2>
+          <div className="admin-list">
+            {stations.map((station) => (
+              <div className="admin-row" key={station.id}>
+                <div>
+                  <strong>{station.name}</strong>
+                  <span>{station.category} · {station.url}</span>
+                </div>
+                <div className="admin-actions">
+                  <button className="icon-button" onClick={() => setEditing(station)} aria-label="编辑">
+                    <Edit3 size={18} />
+                  </button>
+                  <button className="icon-button danger" onClick={() => deleteStation(station.id)} aria-label="删除">
+                    <Trash2 size={18} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function AdminInput({ label, value, onChange, type = "text", required = false }) {
+  return (
+    <label>
+      {label}
+      <input type={type} value={value} required={required} onChange={(event) => onChange(event.target.value)} />
+    </label>
+  );
+}
+
+function AdminTextarea({ label, value, onChange }) {
+  return (
+    <label>
+      {label}
+      <textarea value={value} onChange={(event) => onChange(event.target.value)} />
+    </label>
   );
 }
 
@@ -692,7 +970,7 @@ function EmptyState({ title, action, onAction }) {
   );
 }
 
-function MobileNav({ view, setView, favoriteCount }) {
+function MobileNav({ view, setView, favoriteCount, isAdmin }) {
   return (
     <nav className="mobile-nav" aria-label="移动端导航">
       <button className={view === "explore" ? "active" : ""} onClick={() => setView("explore")}>
@@ -703,9 +981,9 @@ function MobileNav({ view, setView, favoriteCount }) {
         <Bookmark size={20} />
         收藏 {favoriteCount}
       </button>
-      <button className={view === "login" ? "active" : ""} onClick={() => setView("login")}>
-        <UserCircle size={20} />
-        账户
+      <button className={view === (isAdmin ? "admin" : "login") ? "active" : ""} onClick={() => setView(isAdmin ? "admin" : "login")}>
+        {isAdmin ? <LayoutDashboard size={20} /> : <UserCircle size={20} />}
+        {isAdmin ? "管理" : "账户"}
       </button>
     </nav>
   );
@@ -718,6 +996,34 @@ function Footer() {
       <p>用于发现、评估、收藏并直达 AI 中转站的工作台。</p>
     </footer>
   );
+}
+
+function readJson(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeJson(key, value) {
+  localStorage.setItem(key, JSON.stringify(value));
+}
+
+function splitList(value) {
+  return String(value || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function slugify(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\u4e00-\u9fa5]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
 createRoot(document.getElementById("root")).render(<App />);
