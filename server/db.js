@@ -1,5 +1,5 @@
-import "dotenv/config";
 import mysql from "mysql2/promise";
+import "./env.js";
 
 export const dbName = process.env.MYSQL_DATABASE || "azurekiln_ai_hub";
 

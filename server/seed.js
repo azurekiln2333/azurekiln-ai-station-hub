@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import bcrypt from "bcryptjs";
 import mysql from "mysql2/promise";
-import { stations } from "../src/data/stations.js";
+import { stations } from "./seed-data/stations.js";
 import { baseConfig, dbName } from "./db.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));

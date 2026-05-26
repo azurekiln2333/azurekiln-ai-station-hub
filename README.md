@@ -1,6 +1,13 @@
 # AzureKiln AI Hub
 
-AI 中转站汇总站，基于提供的 NexusAI UI demo 重构为 React/Vite + Express + MySQL 应用。
+AI 中转站汇总站，基于提供的 NexusAI UI demo 重构为前后端分离项目。
+
+## 目录结构
+
+- `web/`：React + Vite 前端，包含探索页、详情页、登录页、收藏页和管理后台
+- `server/`：Express + MySQL 后端，包含登录鉴权、站点 API、收藏 API、管理员 API 和数据库初始化脚本
+- `server/seed-data/`：初始化 MySQL 时使用的站点种子数据
+- `cognitive_nexus/`、`*_nexusai/`：原始 UI demo 和设计参考
 
 ## 功能
 
@@ -20,11 +27,18 @@ npm install
 copy .env.example .env
 ```
 
-按需修改 `.env` 里的 MySQL 连接信息，然后初始化数据库：
+按需修改根目录 `.env` 里的 MySQL 连接信息，然后初始化数据库：
 
 ```bash
 npm run db:seed
 npm run dev
+```
+
+也可以单独启动：
+
+```bash
+npm run dev:web
+npm run dev:server
 ```
 
 默认账号：
@@ -47,13 +61,3 @@ npm run build
 - `favorites`：用户收藏关系
 
 SQL schema 在 `server/schema.sql`，后端 API 在 `server/server.js`。
-
-## 设计来源
-
-原始 UI demo 保留在以下目录中：
-
-- `explore_stations_nexusai/`
-- `station_detail_nexusai/`
-- `login_nexusai/`
-- `my_favorites_nexusai/`
-- `cognitive_nexus/DESIGN.md`
