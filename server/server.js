@@ -4,6 +4,7 @@ import cors from "cors";
 import express from "express";
 import jwt from "jsonwebtoken";
 import { pool, query } from "./db.js";
+import { getProbeState, runStationChecks, startProbeScheduler } from "./statusProbe.js";
 
 const app = express();
 const port = Number(process.env.PORT || 4000);
@@ -53,6 +54,31 @@ app.get("/api/auth/me", requireAuth, (req, res) => {
 app.get("/api/stations", async (_req, res) => {
   const rows = await query("SELECT * FROM stations ORDER BY featured DESC, score DESC, name ASC");
   res.json({ stations: rows.map(toStation) });
+});
+
+app.get("/api/stations/status", async (_req, res) => {
+  const rows = await query(
+    `SELECT id, latency, status, last_checked_at, status_error
+     FROM stations
+     ORDER BY id ASC`
+  );
+  res.json({
+    probe: getProbeState(),
+    statuses: rows.map(toStationStatus)
+  });
+});
+
+app.post("/api/admin/stations/check", requireAdmin, async (_req, res) => {
+  const probe = await runStationChecks(query);
+  const rows = await query(
+    `SELECT id, latency, status, last_checked_at, status_error
+     FROM stations
+     ORDER BY id ASC`
+  );
+  res.json({
+    probe,
+    statuses: rows.map(toStationStatus)
+  });
 });
 
 app.get("/api/stations/:id", async (req, res) => {
@@ -114,14 +140,41 @@ app.use((error, _req, res, _next) => {
   res.status(500).json({ error: error.message || "服务异常" });
 });
 
-app.listen(port, () => {
-  console.log(`API server listening on http://localhost:${port}`);
+bootstrap().catch((error) => {
+  console.error(error);
+  process.exit(1);
 });
 
 process.on("SIGINT", async () => {
   await pool.end();
   process.exit(0);
 });
+
+async function bootstrap() {
+  await ensureStationProbeColumns();
+  app.listen(port, () => {
+    console.log(`API server listening on http://localhost:${port}`);
+  });
+  startProbeScheduler(query);
+}
+
+async function ensureStationProbeColumns() {
+  const columns = await query(
+    `SELECT COLUMN_NAME
+     FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = 'stations'
+       AND COLUMN_NAME IN ('last_checked_at', 'status_error')`
+  );
+  const existing = new Set(columns.map((column) => column.COLUMN_NAME));
+
+  if (!existing.has("last_checked_at")) {
+    await query("ALTER TABLE stations ADD COLUMN last_checked_at DATETIME NULL AFTER status");
+  }
+  if (!existing.has("status_error")) {
+    await query("ALTER TABLE stations ADD COLUMN status_error VARCHAR(255) NULL AFTER last_checked_at");
+  }
+}
 
 function signUser(user) {
   return jwt.sign(publicUser(user), jwtSecret, { expiresIn: "7d" });
@@ -191,6 +244,8 @@ function toStation(row) {
     latency: Number(row.latency),
     uptime: row.uptime,
     status: row.status,
+    lastCheckedAt: formatDate(row.last_checked_at),
+    statusError: row.status_error || null,
     security: parseJson(row.security),
     pricing: row.pricing,
     launchLabel: row.launch_label,
@@ -202,6 +257,22 @@ function toStation(row) {
     useCases: parseJson(row.use_cases),
     docs: row.docs
   };
+}
+
+function toStationStatus(row) {
+  return {
+    id: row.id,
+    latency: Number(row.latency),
+    status: row.status,
+    lastCheckedAt: formatDate(row.last_checked_at),
+    statusError: row.status_error || null
+  };
+}
+
+function formatDate(value) {
+  if (!value) return null;
+  if (value instanceof Date) return value.toISOString();
+  return new Date(value).toISOString();
 }
 
 function normalizeStation(input) {

@@ -28,6 +28,8 @@ CREATE TABLE IF NOT EXISTS stations (
   latency INT UNSIGNED NOT NULL DEFAULT 0,
   uptime VARCHAR(40) NOT NULL,
   status ENUM('online', 'degraded', 'offline') NOT NULL DEFAULT 'online',
+  last_checked_at DATETIME NULL,
+  status_error VARCHAR(255) NULL,
   security JSON NOT NULL,
   pricing VARCHAR(160) NOT NULL,
   launch_label VARCHAR(80) NOT NULL,

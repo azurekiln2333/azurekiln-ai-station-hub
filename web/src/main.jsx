@@ -85,6 +85,8 @@ function App() {
   const [apiError, setApiError] = useState("");
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState("");
+  const [probeInfo, setProbeInfo] = useState(null);
+  const [statusRefreshing, setStatusRefreshing] = useState(false);
 
   useEffect(() => {
     refreshStations();
@@ -97,6 +99,14 @@ function App() {
       setFavorites([]);
     }
   }, [user]);
+
+  useEffect(() => {
+    if (apiError) return undefined;
+    const timer = window.setInterval(() => {
+      refreshStationStatuses();
+    }, 30000);
+    return () => window.clearInterval(timer);
+  }, [apiError]);
 
   const categories = useMemo(
     () => ["全部", ...Array.from(new Set(stations.map((station) => station.category))).sort()],
@@ -149,6 +159,36 @@ function App() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function refreshStationStatuses(manual = false) {
+    setStatusRefreshing(true);
+    try {
+      const data = await api(manual ? "/api/admin/stations/check" : "/api/stations/status", {
+        method: manual ? "POST" : "GET"
+      });
+      mergeStatuses(data.statuses);
+      setProbeInfo(data.probe);
+      if (manual) {
+        showToast("已触发实时检测，延迟和状态已更新");
+      }
+    } catch (error) {
+      if (manual) {
+        showToast(error.message);
+      }
+    } finally {
+      setStatusRefreshing(false);
+    }
+  }
+
+  function mergeStatuses(statuses = []) {
+    const statusMap = new Map(statuses.map((status) => [status.id, status]));
+    const merge = (station) => {
+      const status = statusMap.get(station.id);
+      return status ? { ...station, ...status } : station;
+    };
+    setStations((current) => current.map(merge));
+    setFavorites((current) => current.map(merge));
   }
 
   async function refreshFavorites() {
@@ -271,6 +311,8 @@ function App() {
             query={query}
             recentStations={recentStations}
             stations={stations}
+            probeInfo={probeInfo}
+            statusRefreshing={statusRefreshing}
             setActiveTags={setActiveTags}
             setCategory={setCategory}
             setQuery={setQuery}
@@ -278,6 +320,7 @@ function App() {
             toggleTag={toggleTag}
             openDetail={openDetail}
             directLaunch={directLaunch}
+            refreshStationStatuses={refreshStationStatuses}
           />
         )}
         {!loading && !apiError && view === "detail" && selectedStation && (
@@ -311,6 +354,9 @@ function App() {
             stations={stations}
             saveStation={saveStation}
             deleteStation={deleteStation}
+            refreshStationStatuses={refreshStationStatuses}
+            statusRefreshing={statusRefreshing}
+            probeInfo={probeInfo}
             setView={setView}
           />
         )}
@@ -398,13 +444,16 @@ function ExploreView({
   query,
   recentStations,
   stations,
+  probeInfo,
+  statusRefreshing,
   setActiveTags,
   setCategory,
   setQuery,
   toggleFavorite,
   toggleTag,
   openDetail,
-  directLaunch
+  directLaunch,
+  refreshStationStatuses
 }) {
   const featured = filteredStations.find((station) => station.featured) || filteredStations[0];
   const rest = filteredStations.filter((station) => station.id !== featured?.id);
@@ -434,6 +483,10 @@ function ExploreView({
           <div className="metric-row">
             <span>在线可用</span>
             <strong>{stations.filter((station) => station.status === "online").length}</strong>
+          </div>
+          <div className="metric-row">
+            <span>实时检测</span>
+            <strong>{statusRefreshing ? "检测中" : probeInfo?.lastRun ? "已启用" : "等待中"}</strong>
           </div>
         </div>
       </section>
@@ -555,6 +608,10 @@ function StationCard({ station, featured = false, isFavorite, onFavorite, onOpen
           <span />
           {station.status === "online" ? "Online" : station.status === "degraded" ? "Degraded" : "Offline"}
         </span>
+      </div>
+      <div className="probe-meta">
+        <span>{station.lastCheckedAt ? `最后检测 ${formatRelativeTime(station.lastCheckedAt)}` : "等待首次检测"}</span>
+        {station.statusError && <span className="probe-error">{station.statusError}</span>}
       </div>
       <p className="station-tagline">{station.tagline}</p>
       <p className="station-description">{station.description}</p>
@@ -803,7 +860,16 @@ function LoginView({ login, setView }) {
   );
 }
 
-function AdminView({ user, stations, saveStation, deleteStation, setView }) {
+function AdminView({
+  user,
+  stations,
+  saveStation,
+  deleteStation,
+  refreshStationStatuses,
+  statusRefreshing,
+  probeInfo,
+  setView
+}) {
   const [editing, setEditing] = useState(emptyStation);
   const [saving, setSaving] = useState(false);
 
@@ -854,10 +920,26 @@ function AdminView({ user, stations, saveStation, deleteStation, setView }) {
           <h1>管理后台</h1>
           <p>新增、编辑、删除中转站。所有改动写入 MySQL 的 stations 表。</p>
         </div>
-        <button className="secondary-button" onClick={() => setEditing(emptyStation)}>
+        <div className="admin-header-actions">
+          <button className="secondary-button" onClick={() => refreshStationStatuses(true)} disabled={statusRefreshing}>
+            {statusRefreshing ? "检测中..." : "立即检测延迟"}
+          </button>
+          <button className="secondary-button" onClick={() => setEditing(emptyStation)}>
           <Plus size={18} />
           新增站点
-        </button>
+          </button>
+        </div>
+      </div>
+
+      <div className="probe-strip compact">
+        <div>
+          <strong>实时探测</strong>
+          <span>
+            {probeInfo?.lastRun
+              ? `最近检测：${formatRelativeTime(probeInfo.lastRun)}`
+              : "后端启动后会定时检测，也可以手动触发"}
+          </span>
+        </div>
       </div>
 
       <div className="admin-grid">
@@ -1024,6 +1106,19 @@ function slugify(value) {
     .toLowerCase()
     .replace(/[^a-z0-9\u4e00-\u9fa5]+/g, "-")
     .replace(/^-+|-+$/g, "");
+}
+
+function formatRelativeTime(value) {
+  const timestamp = new Date(value).getTime();
+  if (!Number.isFinite(timestamp)) return "未知时间";
+  const diffSeconds = Math.max(Math.floor((Date.now() - timestamp) / 1000), 0);
+  if (diffSeconds < 60) return `${diffSeconds} 秒前`;
+  const diffMinutes = Math.floor(diffSeconds / 60);
+  if (diffMinutes < 60) return `${diffMinutes} 分钟前`;
+  const diffHours = Math.floor(diffMinutes / 60);
+  if (diffHours < 24) return `${diffHours} 小时前`;
+  const diffDays = Math.floor(diffHours / 24);
+  return `${diffDays} 天前`;
 }
 
 createRoot(document.getElementById("root")).render(<App />);
