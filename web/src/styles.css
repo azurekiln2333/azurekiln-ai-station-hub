@@ -1100,6 +1100,23 @@ a {
   font-size: 13px;
 }
 
+.oauth-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.oauth-divider::before,
+.oauth-divider::after {
+  content: "";
+  height: 1px;
+  flex: 1;
+  background: var(--outline);
+}
+
 .checkbox-label {
   display: flex !important;
   grid-template-columns: none !important;

@@ -3,16 +3,23 @@ import bcrypt from "bcryptjs";
 import cors from "cors";
 import express from "express";
 import jwt from "jsonwebtoken";
+import crypto from "node:crypto";
 import { pool, query } from "./db.js";
 import { getProbeState, runStationCheck, runStationChecks, startProbeScheduler } from "./statusProbe.js";
 
 const app = express();
 const port = Number(process.env.PORT || 4000);
 const jwtSecret = process.env.JWT_SECRET || "dev-secret";
+const clientOrigin = process.env.CLIENT_ORIGIN || "http://localhost:5173";
+const oauthIssuerUrl = trimTrailingSlash(process.env.OAUTH_ISSUER_URL || "http://localhost:3146");
+const oauthClientId = process.env.OAUTH_CLIENT_ID || "";
+const oauthClientSecret = process.env.OAUTH_CLIENT_SECRET || "";
+const oauthRedirectUri = process.env.OAUTH_REDIRECT_URI || `${clientOrigin}/oauth/callback`;
+const oauthScope = process.env.OAUTH_SCOPE || "openid profile email";
 
 app.use(
   cors({
-    origin: process.env.CLIENT_ORIGIN || "http://localhost:5173",
+    origin: clientOrigin,
     credentials: true
   })
 );
@@ -40,6 +47,53 @@ app.post("/api/auth/login", async (req, res) => {
     res.status(401).json({ error: "账号或密码错误" });
     return;
   }
+
+  res.json({
+    token: signUser(user),
+    user: publicUser(user)
+  });
+});
+
+app.post("/api/auth/oauth/authorize-url", (req, res) => {
+  if (!isOauthConfigured()) {
+    res.status(400).json({ error: "OAuth 登录尚未配置" });
+    return;
+  }
+
+  const state = String(req.body?.state || "").trim();
+  const codeChallenge = String(req.body?.codeChallenge || req.body?.code_challenge || "").trim();
+  if (!state || !codeChallenge) {
+    res.status(400).json({ error: "OAuth state 和 code challenge 不能为空" });
+    return;
+  }
+
+  const url = new URL(`${oauthIssuerUrl}/oauth2/authorize`);
+  url.searchParams.set("response_type", "code");
+  url.searchParams.set("client_id", oauthClientId);
+  url.searchParams.set("redirect_uri", oauthRedirectUri);
+  url.searchParams.set("scope", oauthScope);
+  url.searchParams.set("state", state);
+  url.searchParams.set("code_challenge", codeChallenge);
+  url.searchParams.set("code_challenge_method", "S256");
+  res.json({ url: url.toString() });
+});
+
+app.post("/api/auth/oauth/callback", async (req, res) => {
+  if (!isOauthConfigured()) {
+    res.status(400).json({ error: "OAuth 登录尚未配置" });
+    return;
+  }
+
+  const code = String(req.body?.code || "").trim();
+  const codeVerifier = String(req.body?.codeVerifier || req.body?.code_verifier || "").trim();
+  if (!code || !codeVerifier) {
+    res.status(400).json({ error: "OAuth 授权码或 code verifier 不能为空" });
+    return;
+  }
+
+  const tokenData = await exchangeOAuthCode(code, codeVerifier);
+  const profile = await fetchOAuthProfile(tokenData.access_token);
+  const user = await findOrCreateOAuthUser(profile);
 
   res.json({
     token: signUser(user),
@@ -275,6 +329,89 @@ function publicUser(user) {
     email: user.email,
     role: user.role
   };
+}
+
+function isOauthConfigured() {
+  return Boolean(oauthIssuerUrl && oauthClientId && oauthClientSecret && oauthRedirectUri);
+}
+
+function trimTrailingSlash(value) {
+  return String(value || "").replace(/\/+$/, "");
+}
+
+async function exchangeOAuthCode(code, codeVerifier) {
+  const response = await fetch(`${oauthIssuerUrl}/oauth2/token`, {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${Buffer.from(`${oauthClientId}:${oauthClientSecret}`).toString("base64")}`,
+      "Content-Type": "application/x-www-form-urlencoded"
+    },
+    body: new URLSearchParams({
+      grant_type: "authorization_code",
+      code,
+      redirect_uri: oauthRedirectUri,
+      code_verifier: codeVerifier
+    })
+  });
+
+  const data = await readJsonResponse(response);
+  if (!response.ok) {
+    throw new Error(data.error_description || data.error || "OAuth 授权码换取令牌失败");
+  }
+  if (!data.access_token) {
+    throw new Error("OAuth token 响应缺少 access_token");
+  }
+  return data;
+}
+
+async function fetchOAuthProfile(accessToken) {
+  const response = await fetch(`${oauthIssuerUrl}/oauth2/userinfo`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    }
+  });
+
+  const data = await readJsonResponse(response);
+  if (!response.ok) {
+    throw new Error(data.error_description || data.error || "OAuth 用户资料获取失败");
+  }
+  if (!data.email) {
+    throw new Error("OAuth 用户资料缺少 email，确认客户端 scope 包含 email");
+  }
+  return data;
+}
+
+async function readJsonResponse(response) {
+  const text = await response.text();
+  if (!text) return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { error: text };
+  }
+}
+
+async function findOrCreateOAuthUser(profile) {
+  const email = String(profile.email || "").trim().toLowerCase();
+  const name = String(profile.name || profile.preferred_username || profile.username || email).trim();
+  const users = await query("SELECT * FROM users WHERE email = :email LIMIT 1", { email });
+  if (users[0]) {
+    return users[0];
+  }
+
+  const passwordHash = await bcrypt.hash(crypto.randomUUID(), 10);
+  await query(
+    `INSERT INTO users (name, email, password_hash, role)
+     VALUES (:name, :email, :passwordHash, 'user')`,
+    {
+      name,
+      email,
+      passwordHash
+    }
+  );
+
+  const created = await query("SELECT * FROM users WHERE email = :email LIMIT 1", { email });
+  return created[0];
 }
 
 function requireAuth(req, res, next) {

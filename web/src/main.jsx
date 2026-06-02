@@ -49,6 +49,9 @@ const iconMap = {
   TerminalSquare
 };
 
+const OAUTH_STATE_KEY = "azurekiln:oauth:state";
+const OAUTH_VERIFIER_KEY = "azurekiln:oauth:verifier";
+
 function createStationId() {
   if (window.crypto?.randomUUID) {
     return `station_${window.crypto.randomUUID().slice(0, 8)}`;
@@ -88,7 +91,7 @@ function createEmptyStation() {
 
 function App() {
   const storedSession = getStoredSession();
-  const [view, setView] = useState("explore");
+  const [view, setView] = useState(() => (window.location.pathname === "/oauth/callback" ? "oauth-callback" : "explore"));
   const [stations, setStations] = useState([]);
   const [favorites, setFavorites] = useState([]);
   const [recentIds, setRecentIds] = useState(() => readJson("azurekiln:recent", []));
@@ -106,6 +109,12 @@ function App() {
 
   useEffect(() => {
     refreshStations();
+  }, []);
+
+  useEffect(() => {
+    if (window.location.pathname === "/oauth/callback") {
+      handleOAuthCallback();
+    }
   }, []);
 
   useEffect(() => {
@@ -296,6 +305,61 @@ function App() {
     }
   }
 
+  async function startOAuthLogin() {
+    const state = createRandomString(24);
+    const verifier = createRandomString(64);
+    const codeChallenge = await createCodeChallenge(verifier);
+
+    sessionStorage.setItem(OAUTH_STATE_KEY, state);
+    sessionStorage.setItem(OAUTH_VERIFIER_KEY, verifier);
+
+    try {
+      const data = await api("/api/auth/oauth/authorize-url", {
+        method: "POST",
+        body: JSON.stringify({ state, codeChallenge })
+      });
+      window.location.assign(data.url);
+    } catch (error) {
+      sessionStorage.removeItem(OAUTH_STATE_KEY);
+      sessionStorage.removeItem(OAUTH_VERIFIER_KEY);
+      showToast(error.message);
+    }
+  }
+
+  async function handleOAuthCallback() {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("code") || "";
+    const state = params.get("state") || "";
+    const expectedState = sessionStorage.getItem(OAUTH_STATE_KEY) || "";
+    const codeVerifier = sessionStorage.getItem(OAUTH_VERIFIER_KEY) || "";
+
+    sessionStorage.removeItem(OAUTH_STATE_KEY);
+    sessionStorage.removeItem(OAUTH_VERIFIER_KEY);
+
+    try {
+      if (!code) {
+        throw new Error(params.get("error_description") || params.get("error") || "OAuth 登录没有返回授权码");
+      }
+      if (!state || state !== expectedState || !codeVerifier) {
+        throw new Error("OAuth 登录状态校验失败，请重新登录");
+      }
+
+      const session = await api("/api/auth/oauth/callback", {
+        method: "POST",
+        body: JSON.stringify({ code, codeVerifier })
+      });
+      storeSession(session);
+      setUser(session.user);
+      window.history.replaceState({}, "", "/");
+      setView(session.user.role === "admin" ? "admin" : "explore");
+      showToast(session.user.role === "admin" ? "管理员登录成功" : "登录成功");
+    } catch (error) {
+      window.history.replaceState({}, "", "/");
+      setView("login");
+      showToast(error.message);
+    }
+  }
+
   function logout() {
     clearSession();
     setUser(null);
@@ -416,7 +480,8 @@ function App() {
             copyEndpoint={copyEndpoint}
           />
         )}
-        {view === "login" && <LoginView login={login} setView={setView} />}
+        {view === "login" && <LoginView login={login} startOAuthLogin={startOAuthLogin} setView={setView} />}
+        {view === "oauth-callback" && <OAuthCallbackView />}
         {!loading && !apiError && view === "admin" && (
           <AdminView
             user={user}
@@ -990,7 +1055,7 @@ function FavoritesView({
   );
 }
 
-function LoginView({ login, setView }) {
+function LoginView({ login, startOAuthLogin, setView }) {
   const [showPassword, setShowPassword] = useState(false);
   return (
     <section className="login-page">
@@ -1023,7 +1088,26 @@ function LoginView({ login, setView }) {
           登录
           <ArrowUpRight size={18} />
         </button>
+        <div className="oauth-divider">
+          <span>或</span>
+        </div>
+        <button className="secondary-button full" type="button" onClick={startOAuthLogin}>
+          <LogIn size={18} />
+          使用 AzureKiln OAuth 登录
+        </button>
       </form>
+    </section>
+  );
+}
+
+function OAuthCallbackView() {
+  return (
+    <section className="auth-required">
+      <div className="auth-card">
+        <LogIn size={42} />
+        <h1>正在完成登录</h1>
+        <p>正在校验 AzureKiln OAuth 授权结果。</p>
+      </div>
     </section>
   );
 }
@@ -1322,6 +1406,26 @@ function readJson(key, fallback) {
 
 function writeJson(key, value) {
   localStorage.setItem(key, JSON.stringify(value));
+}
+
+function createRandomString(byteLength) {
+  const bytes = new Uint8Array(byteLength);
+  window.crypto.getRandomValues(bytes);
+  return base64UrlEncode(bytes);
+}
+
+async function createCodeChallenge(verifier) {
+  const data = new TextEncoder().encode(verifier);
+  const digest = await window.crypto.subtle.digest("SHA-256", data);
+  return base64UrlEncode(new Uint8Array(digest));
+}
+
+function base64UrlEncode(bytes) {
+  let text = "";
+  bytes.forEach((byte) => {
+    text += String.fromCharCode(byte);
+  });
+  return window.btoa(text).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
 function splitList(value) {
