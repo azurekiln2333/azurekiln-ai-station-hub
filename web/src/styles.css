@@ -1289,6 +1289,35 @@ a {
   border-radius: 12px;
   padding: 12px;
   background: var(--surface-low);
+  cursor: grab;
+}
+
+.admin-row.dragging {
+  opacity: 0.58;
+  border-style: dashed;
+}
+
+.admin-row-main {
+  min-width: 0;
+  flex: 1;
+}
+
+.drag-handle {
+  display: inline-flex;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--outline);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text-muted);
+  cursor: grab;
+}
+
+.drag-handle:active {
+  cursor: grabbing;
 }
 
 .admin-row strong,

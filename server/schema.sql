@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS stations (
   icon_url VARCHAR(500) NULL,
   accent VARCHAR(40) NOT NULL,
   featured BOOLEAN NOT NULL DEFAULT FALSE,
+  sort_order INT UNSIGNED NOT NULL DEFAULT 0,
   score INT UNSIGNED NOT NULL DEFAULT 0,
   api_shape VARCHAR(120) NOT NULL,
   use_cases JSON NOT NULL,
@@ -47,6 +48,7 @@ CREATE TABLE IF NOT EXISTS stations (
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   KEY stations_category_idx (category),
+  KEY stations_sort_order_idx (sort_order),
   KEY stations_score_idx (score)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

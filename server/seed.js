@@ -26,20 +26,20 @@ async function main() {
   await upsertUser(connection, "管理员", adminEmail, adminPassword, "admin");
   await upsertUser(connection, "Demo User", demoEmail, demoPassword, "user");
 
-  for (const station of stations) {
+  for (const [index, station] of stations.entries()) {
     await connection.execute(
       `INSERT INTO stations (
         id, name, tagline, description, url, api_endpoint, cdk_url, category, tags, models, region,
         latency, uptime, status, security, pricing, launch_label, icon, icon_url, accent,
-        featured, score, api_shape, use_cases, docs
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        featured, sort_order, score, api_shape, use_cases, docs
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON DUPLICATE KEY UPDATE
         name = VALUES(name), tagline = VALUES(tagline), description = VALUES(description),
         url = VALUES(url), api_endpoint = VALUES(api_endpoint), cdk_url = VALUES(cdk_url), category = VALUES(category), tags = VALUES(tags),
         models = VALUES(models), region = VALUES(region), latency = VALUES(latency),
         uptime = VALUES(uptime), status = VALUES(status), security = VALUES(security),
         pricing = VALUES(pricing), launch_label = VALUES(launch_label), icon = VALUES(icon), icon_url = VALUES(icon_url),
-        accent = VALUES(accent), featured = VALUES(featured), score = VALUES(score),
+        accent = VALUES(accent), featured = VALUES(featured), sort_order = VALUES(sort_order), score = VALUES(score),
         api_shape = VALUES(api_shape), use_cases = VALUES(use_cases), docs = VALUES(docs)`,
       [
         station.id,
@@ -63,6 +63,7 @@ async function main() {
         station.iconUrl || "",
         station.accent,
         station.featured ? 1 : 0,
+        station.sortOrder || (index + 1) * 10,
         station.score,
         station.apiShape,
         JSON.stringify(station.useCases),

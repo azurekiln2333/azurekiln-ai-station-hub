@@ -52,7 +52,7 @@ app.get("/api/auth/me", requireAuth, (req, res) => {
 });
 
 app.get("/api/stations", async (_req, res) => {
-  const rows = await query("SELECT * FROM stations ORDER BY featured DESC, score DESC, name ASC");
+  const rows = await query("SELECT * FROM stations ORDER BY sort_order ASC, featured DESC, score DESC, name ASC");
   res.json({ stations: rows.map(toStation) });
 });
 
@@ -149,8 +149,38 @@ app.delete("/api/favorites/:stationId", requireAuth, async (req, res) => {
 
 app.post("/api/admin/stations", requireAdmin, async (req, res) => {
   const station = normalizeStation(req.body);
+  if (!station.sortOrder) {
+    station.sortOrder = await getNextSortOrder();
+  }
   await upsertStation(station);
   res.status(201).json({ station });
+});
+
+app.put("/api/admin/stations/order", requireAdmin, async (req, res) => {
+  const ids = Array.isArray(req.body?.ids)
+    ? req.body.ids.map((id) => String(id || "").trim()).filter(Boolean)
+    : [];
+
+  if (!ids.length) {
+    res.status(400).json({ error: "排序列表不能为空" });
+    return;
+  }
+
+  const uniqueIds = [...new Set(ids)];
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    for (const [index, id] of uniqueIds.entries()) {
+      await connection.execute("UPDATE stations SET sort_order = ? WHERE id = ?", [(index + 1) * 10, id]);
+    }
+    await connection.commit();
+    res.json({ ok: true });
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
 });
 
 app.put("/api/admin/stations/:id", requireAdmin, async (req, res) => {
@@ -193,7 +223,7 @@ async function ensureStationColumns() {
      FROM INFORMATION_SCHEMA.COLUMNS
      WHERE TABLE_SCHEMA = DATABASE()
        AND TABLE_NAME = 'stations'
-       AND COLUMN_NAME IN ('api_endpoint', 'cdk_url', 'icon_url', 'last_checked_at', 'status_error')`
+       AND COLUMN_NAME IN ('api_endpoint', 'cdk_url', 'icon_url', 'last_checked_at', 'status_error', 'sort_order')`
   );
   const existing = new Set(columns.map((column) => column.COLUMN_NAME));
 
@@ -213,6 +243,25 @@ async function ensureStationColumns() {
   if (!existing.has("status_error")) {
     await query("ALTER TABLE stations ADD COLUMN status_error VARCHAR(255) NULL AFTER last_checked_at");
   }
+  if (!existing.has("sort_order")) {
+    await query("ALTER TABLE stations ADD COLUMN sort_order INT UNSIGNED NOT NULL DEFAULT 0 AFTER featured");
+    await initializeSortOrder();
+  }
+}
+
+async function initializeSortOrder() {
+  const rows = await query("SELECT id FROM stations ORDER BY featured DESC, score DESC, name ASC");
+  for (const [index, row] of rows.entries()) {
+    await query("UPDATE stations SET sort_order = :sortOrder WHERE id = :id", {
+      id: row.id,
+      sortOrder: (index + 1) * 10
+    });
+  }
+}
+
+async function getNextSortOrder() {
+  const rows = await query("SELECT COALESCE(MAX(sort_order), 0) + 10 AS sort_order FROM stations");
+  return Number(rows[0]?.sort_order || 10);
 }
 
 function signUser(user) {
@@ -294,6 +343,7 @@ function toStation(row) {
     iconUrl: row.icon_url || "",
     accent: row.accent,
     featured: Boolean(row.featured),
+    sortOrder: Number(row.sort_order || 0),
     score: Number(row.score),
     apiShape: row.api_shape,
     useCases: parseJson(row.use_cases),
@@ -340,6 +390,7 @@ function normalizeStation(input) {
     iconUrl: String(input.iconUrl || input.icon_url || "").trim(),
     accent: String(input.accent || "blue").trim(),
     featured: Boolean(input.featured),
+    sortOrder: Number(input.sortOrder || input.sort_order || 0),
     score: Number(input.score || 0),
     apiShape: String(input.apiShape || input.api_shape || "API").trim(),
     useCases: parseJson(input.useCases || input.use_cases),
@@ -357,12 +408,12 @@ async function upsertStation(station) {
     `INSERT INTO stations (
       id, name, tagline, description, url, api_endpoint, cdk_url, category, tags, models, region,
       latency, uptime, status, security, pricing, launch_label, icon, icon_url, accent,
-      featured, score, api_shape, use_cases, docs
+      featured, sort_order, score, api_shape, use_cases, docs
     ) VALUES (
       :id, :name, :tagline, :description, :url, :apiEndpoint, :cdkUrl, :category, :tags,
       :models, :region, :latency, :uptime, :status,
       :security, :pricing, :launchLabel, :icon, :iconUrl, :accent,
-      :featured, :score, :apiShape, :useCases, :docs
+      :featured, :sortOrder, :score, :apiShape, :useCases, :docs
     )
     ON DUPLICATE KEY UPDATE
       name = VALUES(name), tagline = VALUES(tagline), description = VALUES(description),
@@ -370,7 +421,7 @@ async function upsertStation(station) {
       models = VALUES(models), region = VALUES(region), latency = VALUES(latency),
       uptime = VALUES(uptime), status = VALUES(status), security = VALUES(security),
       pricing = VALUES(pricing), launch_label = VALUES(launch_label), icon = VALUES(icon), icon_url = VALUES(icon_url),
-      accent = VALUES(accent), featured = VALUES(featured), score = VALUES(score),
+      accent = VALUES(accent), featured = VALUES(featured), sort_order = VALUES(sort_order), score = VALUES(score),
       api_shape = VALUES(api_shape), use_cases = VALUES(use_cases), docs = VALUES(docs)`,
     {
       ...station,

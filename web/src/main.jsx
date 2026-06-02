@@ -11,6 +11,7 @@ import {
   Edit3,
   ExternalLink,
   Filter,
+  GripVertical,
   Heart,
   History,
   Languages,
@@ -327,6 +328,24 @@ function App() {
     showToast("中转站已删除");
   }
 
+  async function reorderStations(ids) {
+    const orderMap = new Map(ids.map((id, index) => [id, index]));
+    setStations((current) =>
+      [...current].sort((a, b) => (orderMap.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (orderMap.get(b.id) ?? Number.MAX_SAFE_INTEGER))
+    );
+
+    try {
+      await api("/api/admin/stations/order", {
+        method: "PUT",
+        body: JSON.stringify({ ids })
+      });
+      showToast("站点排序已保存");
+    } catch (error) {
+      showToast(error.message);
+      await refreshStations();
+    }
+  }
+
   async function copyEndpoint(station) {
     try {
       await navigator.clipboard.writeText(station.apiEndpoint || station.url);
@@ -404,6 +423,7 @@ function App() {
             stations={stations}
             saveStation={saveStation}
             deleteStation={deleteStation}
+            reorderStations={reorderStations}
             refreshStationStatuses={refreshStationStatuses}
             statusRefreshing={statusRefreshing}
             probeInfo={probeInfo}
@@ -1013,6 +1033,7 @@ function AdminView({
   stations,
   saveStation,
   deleteStation,
+  reorderStations,
   refreshStationStatuses,
   statusRefreshing,
   probeInfo,
@@ -1020,6 +1041,7 @@ function AdminView({
 }) {
   const [editing, setEditing] = useState(() => createEmptyStation());
   const [saving, setSaving] = useState(false);
+  const [draggingStationId, setDraggingStationId] = useState("");
 
   if (!user) {
     return (
@@ -1059,6 +1081,20 @@ function AdminView({
     } finally {
       setSaving(false);
     }
+  }
+
+  function moveStation(fromId, toId) {
+    if (!fromId || !toId || fromId === toId) return;
+
+    const ids = stations.map((station) => station.id);
+    const fromIndex = ids.indexOf(fromId);
+    const toIndex = ids.indexOf(toId);
+    if (fromIndex < 0 || toIndex < 0) return;
+
+    const nextIds = [...ids];
+    const [movedId] = nextIds.splice(fromIndex, 1);
+    nextIds.splice(toIndex, 0, movedId);
+    reorderStations(nextIds);
   }
 
   return (
@@ -1158,8 +1194,30 @@ function AdminView({
           <h2>站点列表</h2>
           <div className="admin-list">
             {stations.map((station) => (
-              <div className="admin-row" key={station.id}>
-                <div>
+              <div
+                className={`admin-row ${draggingStationId === station.id ? "dragging" : ""}`}
+                key={station.id}
+                draggable
+                onDragStart={(event) => {
+                  setDraggingStationId(station.id);
+                  event.dataTransfer.effectAllowed = "move";
+                  event.dataTransfer.setData("text/plain", station.id);
+                }}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = "move";
+                }}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  moveStation(event.dataTransfer.getData("text/plain"), station.id);
+                  setDraggingStationId("");
+                }}
+                onDragEnd={() => setDraggingStationId("")}
+              >
+                <button className="drag-handle" type="button" aria-label="拖拽排序" title="拖拽排序">
+                  <GripVertical size={18} />
+                </button>
+                <div className="admin-row-main">
                   <strong>{station.name}</strong>
                   <span>{station.category} · {station.url}</span>
                 </div>
