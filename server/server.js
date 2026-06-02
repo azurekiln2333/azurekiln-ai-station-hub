@@ -68,6 +68,19 @@ app.get("/api/stations/status", async (_req, res) => {
   });
 });
 
+app.post("/api/stations/check", async (_req, res) => {
+  const probe = await runStationChecks(query);
+  const rows = await query(
+    `SELECT id, latency, status, last_checked_at, status_error
+     FROM stations
+     ORDER BY id ASC`
+  );
+  res.json({
+    probe,
+    statuses: rows.map(toStationStatus)
+  });
+});
+
 app.post("/api/admin/stations/check", requireAdmin, async (_req, res) => {
   const probe = await runStationChecks(query);
   const rows = await query(

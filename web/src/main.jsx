@@ -156,6 +156,9 @@ function App() {
       setStations(data.stations);
       setSelectedStationId((current) => current || data.stations[0]?.id || "");
       setApiError("");
+      window.setTimeout(() => {
+        refreshStationStatuses(false, true);
+      }, 0);
     } catch (error) {
       setApiError(error.message);
     } finally {
@@ -163,11 +166,12 @@ function App() {
     }
   }
 
-  async function refreshStationStatuses(manual = false) {
+  async function refreshStationStatuses(manual = false, probe = false) {
     setStatusRefreshing(true);
     try {
-      const data = await api(manual ? "/api/admin/stations/check" : "/api/stations/status", {
-        method: manual ? "POST" : "GET"
+      const path = manual ? "/api/admin/stations/check" : probe ? "/api/stations/check" : "/api/stations/status";
+      const data = await api(path, {
+        method: manual || probe ? "POST" : "GET"
       });
       mergeStatuses(data.statuses);
       setProbeInfo(data.probe);
