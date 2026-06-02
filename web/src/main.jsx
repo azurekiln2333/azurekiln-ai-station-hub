@@ -30,7 +30,8 @@ import {
   Trash2,
   UserCircle,
   WandSparkles,
-  X
+  X,
+  Zap
 } from "lucide-react";
 import { api, clearSession, getStoredSession, storeSession } from "./api";
 import "./styles.css";
@@ -87,6 +88,7 @@ function App() {
   const [toast, setToast] = useState("");
   const [probeInfo, setProbeInfo] = useState(null);
   const [statusRefreshing, setStatusRefreshing] = useState(false);
+  const [checkingStationIds, setCheckingStationIds] = useState([]);
 
   useEffect(() => {
     refreshStations();
@@ -189,6 +191,19 @@ function App() {
     };
     setStations((current) => current.map(merge));
     setFavorites((current) => current.map(merge));
+  }
+
+  async function refreshStationStatus(stationId) {
+    setCheckingStationIds((current) => (current.includes(stationId) ? current : [...current, stationId]));
+    try {
+      const data = await api(`/api/stations/${stationId}/check`, { method: "POST" });
+      mergeStatuses([data.status]);
+      showToast("延迟已刷新");
+    } catch (error) {
+      showToast(error.message);
+    } finally {
+      setCheckingStationIds((current) => current.filter((id) => id !== stationId));
+    }
   }
 
   async function refreshFavorites() {
@@ -313,6 +328,7 @@ function App() {
             stations={stations}
             probeInfo={probeInfo}
             statusRefreshing={statusRefreshing}
+            checkingStationIds={checkingStationIds}
             setActiveTags={setActiveTags}
             setCategory={setCategory}
             setQuery={setQuery}
@@ -321,6 +337,7 @@ function App() {
             openDetail={openDetail}
             directLaunch={directLaunch}
             refreshStationStatuses={refreshStationStatuses}
+            refreshStationStatus={refreshStationStatus}
           />
         )}
         {!loading && !apiError && view === "detail" && selectedStation && (
@@ -330,6 +347,8 @@ function App() {
             onBack={() => setView("explore")}
             onFavorite={() => toggleFavorite(selectedStation.id)}
             directLaunch={directLaunch}
+            isCheckingLatency={checkingStationIds.includes(selectedStation.id)}
+            onRefreshLatency={() => refreshStationStatus(selectedStation.id)}
             related={stations
               .filter((station) => station.id !== selectedStation.id && station.category === selectedStation.category)
               .slice(0, 3)}
@@ -345,6 +364,8 @@ function App() {
             directLaunch={directLaunch}
             toggleFavorite={toggleFavorite}
             setView={setView}
+            checkingStationIds={checkingStationIds}
+            refreshStationStatus={refreshStationStatus}
           />
         )}
         {view === "login" && <LoginView login={login} setView={setView} />}
@@ -453,7 +474,9 @@ function ExploreView({
   toggleTag,
   openDetail,
   directLaunch,
-  refreshStationStatuses
+  refreshStationStatuses,
+  checkingStationIds,
+  refreshStationStatus
 }) {
   const featured = filteredStations.find((station) => station.featured) || filteredStations[0];
   const rest = filteredStations.filter((station) => station.id !== featured?.id);
@@ -566,6 +589,8 @@ function ExploreView({
               onFavorite={() => toggleFavorite(featured.id)}
               onOpen={() => openDetail(featured.id)}
               onLaunch={() => directLaunch(featured)}
+              isCheckingLatency={checkingStationIds.includes(featured.id)}
+              onRefreshLatency={() => refreshStationStatus(featured.id)}
             />
           )}
           {rest.map((station) => (
@@ -576,6 +601,8 @@ function ExploreView({
               onFavorite={() => toggleFavorite(station.id)}
               onOpen={() => openDetail(station.id)}
               onLaunch={() => directLaunch(station)}
+              isCheckingLatency={checkingStationIds.includes(station.id)}
+              onRefreshLatency={() => refreshStationStatus(station.id)}
             />
           ))}
         </section>
@@ -584,7 +611,16 @@ function ExploreView({
   );
 }
 
-function StationCard({ station, featured = false, isFavorite, onFavorite, onOpen, onLaunch }) {
+function StationCard({
+  station,
+  featured = false,
+  isFavorite,
+  onFavorite,
+  onOpen,
+  onLaunch,
+  isCheckingLatency = false,
+  onRefreshLatency
+}) {
   const Icon = iconMap[station.icon] || ServerCog;
   return (
     <article className={`station-card accent-${station.accent} ${featured ? "featured" : ""}`}>
@@ -621,7 +657,11 @@ function StationCard({ station, featured = false, isFavorite, onFavorite, onOpen
         ))}
       </div>
       <div className="stat-grid">
-        <Metric label="延迟" value={`${station.latency}ms`} />
+        <Metric
+          label="延迟"
+          value={`${station.latency}ms`}
+          action={<LatencyRefreshButton isChecking={isCheckingLatency} onClick={onRefreshLatency} />}
+        />
         <Metric label="可用率" value={station.uptime} />
         <Metric label="区域" value={station.region} />
         <Metric label="评分" value={station.score} />
@@ -639,16 +679,45 @@ function StationCard({ station, featured = false, isFavorite, onFavorite, onOpen
   );
 }
 
-function Metric({ label, value }) {
+function Metric({ label, value, action = null }) {
   return (
     <div className="metric">
       <span>{label}</span>
-      <strong>{value}</strong>
+      <div className="metric-value-row">
+        <strong>{value}</strong>
+        {action}
+      </div>
     </div>
   );
 }
 
-function DetailView({ station, isFavorite, onBack, onFavorite, directLaunch, related, openDetail }) {
+function LatencyRefreshButton({ isChecking = false, onClick }) {
+  if (!onClick) return null;
+  return (
+    <button
+      type="button"
+      className={`latency-refresh ${isChecking ? "loading" : ""}`}
+      onClick={onClick}
+      disabled={isChecking}
+      aria-label="刷新延迟"
+      title="刷新延迟"
+    >
+      <Zap size={14} />
+    </button>
+  );
+}
+
+function DetailView({
+  station,
+  isFavorite,
+  onBack,
+  onFavorite,
+  directLaunch,
+  related,
+  openDetail,
+  isCheckingLatency = false,
+  onRefreshLatency
+}) {
   const Icon = iconMap[station.icon] || ServerCog;
   return (
     <section className="detail-page">
@@ -694,7 +763,11 @@ function DetailView({ station, isFavorite, onBack, onFavorite, directLaunch, rel
         <section className="panel-card">
           <h2>性能概览</h2>
           <div className="wide-stat-grid">
-            <Metric label="平均延迟" value={`${station.latency}ms`} />
+            <Metric
+              label="平均延迟"
+              value={`${station.latency}ms`}
+              action={<LatencyRefreshButton isChecking={isCheckingLatency} onClick={onRefreshLatency} />}
+            />
             <Metric label="30 天可用率" value={station.uptime} />
             <Metric label="区域" value={station.region} />
             <Metric label="接口形态" value={station.apiShape} />
@@ -756,7 +829,17 @@ function InfoPanel({ title, items, icon }) {
   );
 }
 
-function FavoritesView({ user, favoriteStations, recentStations, openDetail, directLaunch, toggleFavorite, setView }) {
+function FavoritesView({
+  user,
+  favoriteStations,
+  recentStations,
+  openDetail,
+  directLaunch,
+  toggleFavorite,
+  setView,
+  checkingStationIds,
+  refreshStationStatus
+}) {
   if (!user) {
     return (
       <section className="auth-required">
@@ -813,6 +896,8 @@ function FavoritesView({ user, favoriteStations, recentStations, openDetail, dir
                 onFavorite={() => toggleFavorite(station.id)}
                 onOpen={() => openDetail(station.id)}
                 onLaunch={() => directLaunch(station)}
+                isCheckingLatency={checkingStationIds.includes(station.id)}
+                onRefreshLatency={() => refreshStationStatus(station.id)}
               />
             ))}
           </div>

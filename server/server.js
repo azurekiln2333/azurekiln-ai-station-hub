@@ -4,7 +4,7 @@ import cors from "cors";
 import express from "express";
 import jwt from "jsonwebtoken";
 import { pool, query } from "./db.js";
-import { getProbeState, runStationChecks, startProbeScheduler } from "./statusProbe.js";
+import { getProbeState, runStationCheck, runStationChecks, startProbeScheduler } from "./statusProbe.js";
 
 const app = express();
 const port = Number(process.env.PORT || 4000);
@@ -79,6 +79,22 @@ app.post("/api/admin/stations/check", requireAdmin, async (_req, res) => {
     probe,
     statuses: rows.map(toStationStatus)
   });
+});
+
+app.post("/api/stations/:id/check", async (req, res) => {
+  const result = await runStationCheck(query, req.params.id);
+  if (!result) {
+    res.status(404).json({ error: "中转站不存在" });
+    return;
+  }
+  const rows = await query(
+    `SELECT id, latency, status, last_checked_at, status_error
+     FROM stations
+     WHERE id = :id
+     LIMIT 1`,
+    { id: req.params.id }
+  );
+  res.json({ status: toStationStatus(rows[0]) });
 });
 
 app.get("/api/stations/:id", async (req, res) => {

@@ -32,21 +32,7 @@ export async function runStationChecks(query, logger = console) {
     const stations = await query("SELECT id, url FROM stations ORDER BY id ASC");
     const results = await Promise.allSettled(
       stations.map(async (station) => {
-        const result = await probeUrl(station.url);
-        await query(
-          `UPDATE stations
-           SET status = :status,
-               latency = :latency,
-               last_checked_at = NOW(),
-               status_error = :statusError
-           WHERE id = :id`,
-          {
-            id: station.id,
-            status: result.status,
-            latency: result.latency,
-            statusError: result.error
-          }
-        );
+        const result = await updateStationProbe(query, station);
         return { id: station.id, ...result };
       })
     );
@@ -59,6 +45,34 @@ export async function runStationChecks(query, logger = console) {
   } finally {
     running = false;
   }
+}
+
+export async function runStationCheck(query, stationId) {
+  const stations = await query("SELECT id, url FROM stations WHERE id = :id LIMIT 1", { id: stationId });
+  const station = stations[0];
+  if (!station) return null;
+
+  const result = await updateStationProbe(query, station);
+  return { id: station.id, ...result };
+}
+
+async function updateStationProbe(query, station) {
+  const result = await probeUrl(station.url);
+  await query(
+    `UPDATE stations
+     SET status = :status,
+         latency = :latency,
+         last_checked_at = NOW(),
+         status_error = :statusError
+     WHERE id = :id`,
+    {
+      id: station.id,
+      status: result.status,
+      latency: result.latency,
+      statusError: result.error
+    }
+  );
+  return result;
 }
 
 async function probeUrl(url) {
