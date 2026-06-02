@@ -62,6 +62,7 @@ function createEmptyStation() {
     tagline: "",
     description: "",
     url: "",
+    apiEndpoint: "",
     category: "API 接入",
     tags: [],
     models: [],
@@ -73,6 +74,7 @@ function createEmptyStation() {
     pricing: "待定",
     launchLabel: "点击直达",
     icon: "ServerCog",
+    iconUrl: "",
     accent: "blue",
     featured: false,
     score: 90,
@@ -326,7 +328,7 @@ function App() {
 
   async function copyEndpoint(station) {
     try {
-      await navigator.clipboard.writeText(station.url);
+      await navigator.clipboard.writeText(station.apiEndpoint || station.url);
       showToast("API 端点已复制");
     } catch {
       showToast("复制失败，请手动复制");
@@ -655,9 +657,7 @@ function StationCard({
   return (
     <article className={`station-card accent-${station.accent} ${featured ? "featured" : ""}`}>
       <div className="card-top">
-        <div className="station-icon">
-          <Icon size={26} />
-        </div>
+        <StationIcon station={station} Icon={Icon} className="station-icon" size={26} />
         <button
           className={`bookmark-button ${isFavorite ? "saved" : ""}`}
           onClick={onFavorite}
@@ -683,7 +683,7 @@ function StationCard({
       <p className="station-description">{station.description}</p>
       <div className="endpoint-box">
         <span>API 端点</span>
-        <code>{station.url}</code>
+        <code>{station.apiEndpoint || station.url}</code>
         <button type="button" onClick={onCopyEndpoint} aria-label="复制 API 端点" title="复制 API 端点">
           <Copy size={15} />
         </button>
@@ -711,6 +711,21 @@ function StationCard({
         </button>
       </div>
     </article>
+  );
+}
+
+function StationIcon({ station, Icon, className, size }) {
+  if (station.iconUrl) {
+    return (
+      <div className={className}>
+        <img src={station.iconUrl} alt="" loading="lazy" />
+      </div>
+    );
+  }
+  return (
+    <div className={className}>
+      <Icon size={size} />
+    </div>
   );
 }
 
@@ -763,9 +778,7 @@ function DetailView({
       <div className="detail-hero">
         <div className="detail-main">
           <div className="detail-title-row">
-            <div className={`detail-icon accent-${station.accent}`}>
-              <Icon size={34} />
-            </div>
+            <StationIcon station={station} Icon={Icon} className={`detail-icon accent-${station.accent}`} size={34} />
             <div>
               <div className="breadcrumbs">探索 / {station.category} / {station.name}</div>
               <h1>{station.name}</h1>
@@ -1069,6 +1082,11 @@ function AdminView({
           <h2>{stations.some((item) => item.id === editing.id) ? "编辑中转站" : "新增中转站"}</h2>
           <AdminInput label="名称" value={editing.name} onChange={(value) => setEditing({ ...editing, name: value })} required />
           <AdminInput label="直达链接" value={editing.url} onChange={(value) => setEditing({ ...editing, url: value })} required />
+          <AdminInput
+            label="API 端点"
+            value={editing.apiEndpoint || ""}
+            onChange={(value) => setEditing({ ...editing, apiEndpoint: value })}
+          />
           <AdminInput label="一句话描述" value={editing.tagline} onChange={(value) => setEditing({ ...editing, tagline: value })} />
           <AdminTextarea label="详情描述" value={editing.description} onChange={(value) => setEditing({ ...editing, description: value })} />
           <div className="admin-form-row">
@@ -1099,9 +1117,10 @@ function AdminView({
             <AdminInput label="接口形态" value={editing.apiShape} onChange={(value) => setEditing({ ...editing, apiShape: value })} />
           </div>
           <div className="admin-form-row">
-            <AdminInput label="图标" value={editing.icon} onChange={(value) => setEditing({ ...editing, icon: value })} />
-            <AdminInput label="强调色" value={editing.accent} onChange={(value) => setEditing({ ...editing, accent: value })} />
+            <AdminInput label="内置图标" value={editing.icon} onChange={(value) => setEditing({ ...editing, icon: value })} />
+            <AdminInput label="图标 URL" value={editing.iconUrl || ""} onChange={(value) => setEditing({ ...editing, iconUrl: value })} />
           </div>
+          <AdminInput label="强调色" value={editing.accent} onChange={(value) => setEditing({ ...editing, accent: value })} />
           <AdminInput label="按钮文案" value={editing.launchLabel} onChange={(value) => setEditing({ ...editing, launchLabel: value })} />
           <AdminInput label="文档链接" value={editing.docs} onChange={(value) => setEditing({ ...editing, docs: value })} />
           <label className="checkbox-label admin-checkbox">

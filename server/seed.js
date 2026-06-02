@@ -29,16 +29,16 @@ async function main() {
   for (const station of stations) {
     await connection.execute(
       `INSERT INTO stations (
-        id, name, tagline, description, url, category, tags, models, region,
-        latency, uptime, status, security, pricing, launch_label, icon, accent,
+        id, name, tagline, description, url, api_endpoint, category, tags, models, region,
+        latency, uptime, status, security, pricing, launch_label, icon, icon_url, accent,
         featured, score, api_shape, use_cases, docs
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON DUPLICATE KEY UPDATE
         name = VALUES(name), tagline = VALUES(tagline), description = VALUES(description),
-        url = VALUES(url), category = VALUES(category), tags = VALUES(tags),
+        url = VALUES(url), api_endpoint = VALUES(api_endpoint), category = VALUES(category), tags = VALUES(tags),
         models = VALUES(models), region = VALUES(region), latency = VALUES(latency),
         uptime = VALUES(uptime), status = VALUES(status), security = VALUES(security),
-        pricing = VALUES(pricing), launch_label = VALUES(launch_label), icon = VALUES(icon),
+        pricing = VALUES(pricing), launch_label = VALUES(launch_label), icon = VALUES(icon), icon_url = VALUES(icon_url),
         accent = VALUES(accent), featured = VALUES(featured), score = VALUES(score),
         api_shape = VALUES(api_shape), use_cases = VALUES(use_cases), docs = VALUES(docs)`,
       [
@@ -47,6 +47,7 @@ async function main() {
         station.tagline,
         station.description,
         station.url,
+        station.apiEndpoint || station.url,
         station.category,
         JSON.stringify(station.tags),
         JSON.stringify(station.models),
@@ -58,6 +59,7 @@ async function main() {
         station.pricing,
         station.launchLabel,
         station.icon,
+        station.iconUrl || "",
         station.accent,
         station.featured ? 1 : 0,
         station.score,

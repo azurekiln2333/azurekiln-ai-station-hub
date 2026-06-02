@@ -29,7 +29,7 @@ export async function runStationChecks(query, logger = console) {
   lastRun = new Date().toISOString();
 
   try {
-    const stations = await query("SELECT id, url FROM stations ORDER BY id ASC");
+    const stations = await query("SELECT id, COALESCE(NULLIF(api_endpoint, ''), url) AS url FROM stations ORDER BY id ASC");
     const results = await Promise.allSettled(
       stations.map(async (station) => {
         const result = await updateStationProbe(query, station);
@@ -48,7 +48,9 @@ export async function runStationChecks(query, logger = console) {
 }
 
 export async function runStationCheck(query, stationId) {
-  const stations = await query("SELECT id, url FROM stations WHERE id = :id LIMIT 1", { id: stationId });
+  const stations = await query("SELECT id, COALESCE(NULLIF(api_endpoint, ''), url) AS url FROM stations WHERE id = :id LIMIT 1", {
+    id: stationId
+  });
   const station = stations[0];
   if (!station) return null;
 

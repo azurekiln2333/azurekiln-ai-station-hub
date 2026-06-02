@@ -430,6 +430,15 @@ a {
   height: 52px;
 }
 
+.station-icon img,
+.detail-icon img {
+  width: 70%;
+  height: 70%;
+  display: block;
+  border-radius: 8px;
+  object-fit: contain;
+}
+
 .accent-cyan .station-icon,
 .detail-icon.accent-cyan {
   background: #c4e7ff;
