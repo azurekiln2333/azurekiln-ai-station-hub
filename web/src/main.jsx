@@ -6,6 +6,7 @@ import {
   Bookmark,
   CheckCircle2,
   Code2,
+  Copy,
   DatabaseZap,
   Edit3,
   ExternalLink,
@@ -47,30 +48,39 @@ const iconMap = {
   TerminalSquare
 };
 
-const emptyStation = {
-  id: "",
-  name: "",
-  tagline: "",
-  description: "",
-  url: "",
-  category: "API 接入",
-  tags: [],
-  models: [],
-  region: "Global",
-  latency: 100,
-  uptime: "99.9%",
-  status: "online",
-  security: [],
-  pricing: "待定",
-  launchLabel: "点击直达",
-  icon: "ServerCog",
-  accent: "blue",
-  featured: false,
-  score: 90,
-  apiShape: "OpenAI Compatible",
-  useCases: [],
-  docs: ""
-};
+function createStationId() {
+  if (window.crypto?.randomUUID) {
+    return `station_${window.crypto.randomUUID().slice(0, 8)}`;
+  }
+  return `station_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function createEmptyStation() {
+  return {
+    id: createStationId(),
+    name: "",
+    tagline: "",
+    description: "",
+    url: "",
+    category: "API 接入",
+    tags: [],
+    models: [],
+    region: "Global",
+    latency: 100,
+    uptime: "99.9%",
+    status: "online",
+    security: [],
+    pricing: "待定",
+    launchLabel: "点击直达",
+    icon: "ServerCog",
+    accent: "blue",
+    featured: false,
+    score: 90,
+    apiShape: "OpenAI Compatible",
+    useCases: [],
+    docs: ""
+  };
+}
 
 function App() {
   const storedSession = getStoredSession();
@@ -296,11 +306,12 @@ function App() {
   }
 
   async function saveStation(station) {
-    const method = stations.some((item) => item.id === station.id) ? "PUT" : "POST";
-    const path = method === "PUT" ? `/api/admin/stations/${station.id}` : "/api/admin/stations";
+    const payload = { ...station, id: station.id || createStationId() };
+    const method = stations.some((item) => item.id === payload.id) ? "PUT" : "POST";
+    const path = method === "PUT" ? `/api/admin/stations/${payload.id}` : "/api/admin/stations";
     await api(path, {
       method,
-      body: JSON.stringify(station)
+      body: JSON.stringify(payload)
     });
     await refreshStations();
     showToast("中转站已保存");
@@ -311,6 +322,15 @@ function App() {
     await refreshStations();
     await refreshFavorites();
     showToast("中转站已删除");
+  }
+
+  async function copyEndpoint(station) {
+    try {
+      await navigator.clipboard.writeText(station.url);
+      showToast("API 端点已复制");
+    } catch {
+      showToast("复制失败，请手动复制");
+    }
   }
 
   return (
@@ -340,6 +360,7 @@ function App() {
             toggleTag={toggleTag}
             openDetail={openDetail}
             directLaunch={directLaunch}
+            copyEndpoint={copyEndpoint}
             refreshStationStatuses={refreshStationStatuses}
             refreshStationStatus={refreshStationStatus}
           />
@@ -370,6 +391,7 @@ function App() {
             setView={setView}
             checkingStationIds={checkingStationIds}
             refreshStationStatus={refreshStationStatus}
+            copyEndpoint={copyEndpoint}
           />
         )}
         {view === "login" && <LoginView login={login} setView={setView} />}
@@ -478,6 +500,7 @@ function ExploreView({
   toggleTag,
   openDetail,
   directLaunch,
+  copyEndpoint,
   refreshStationStatuses,
   checkingStationIds,
   refreshStationStatus
@@ -593,6 +616,7 @@ function ExploreView({
               onFavorite={() => toggleFavorite(featured.id)}
               onOpen={() => openDetail(featured.id)}
               onLaunch={() => directLaunch(featured)}
+              onCopyEndpoint={() => copyEndpoint(featured)}
               isCheckingLatency={checkingStationIds.includes(featured.id)}
               onRefreshLatency={() => refreshStationStatus(featured.id)}
             />
@@ -605,6 +629,7 @@ function ExploreView({
               onFavorite={() => toggleFavorite(station.id)}
               onOpen={() => openDetail(station.id)}
               onLaunch={() => directLaunch(station)}
+              onCopyEndpoint={() => copyEndpoint(station)}
               isCheckingLatency={checkingStationIds.includes(station.id)}
               onRefreshLatency={() => refreshStationStatus(station.id)}
             />
@@ -622,6 +647,7 @@ function StationCard({
   onFavorite,
   onOpen,
   onLaunch,
+  onCopyEndpoint,
   isCheckingLatency = false,
   onRefreshLatency
 }) {
@@ -655,6 +681,13 @@ function StationCard({
       </div>
       <p className="station-tagline">{station.tagline}</p>
       <p className="station-description">{station.description}</p>
+      <div className="endpoint-box">
+        <span>API 端点</span>
+        <code>{station.url}</code>
+        <button type="button" onClick={onCopyEndpoint} aria-label="复制 API 端点" title="复制 API 端点">
+          <Copy size={15} />
+        </button>
+      </div>
       <div className="tag-row">
         {station.tags.slice(0, featured ? 5 : 3).map((tag) => (
           <span key={tag}>{tag}</span>
@@ -666,9 +699,7 @@ function StationCard({
           value={`${station.latency}ms`}
           action={<LatencyRefreshButton isChecking={isCheckingLatency} onClick={onRefreshLatency} />}
         />
-        <Metric label="可用率" value={station.uptime} />
         <Metric label="区域" value={station.region} />
-        <Metric label="评分" value={station.score} />
       </div>
       <div className="card-actions">
         <button className="secondary-button" onClick={onOpen}>
@@ -842,7 +873,8 @@ function FavoritesView({
   toggleFavorite,
   setView,
   checkingStationIds,
-  refreshStationStatus
+  refreshStationStatus,
+  copyEndpoint
 }) {
   if (!user) {
     return (
@@ -900,6 +932,7 @@ function FavoritesView({
                 onFavorite={() => toggleFavorite(station.id)}
                 onOpen={() => openDetail(station.id)}
                 onLaunch={() => directLaunch(station)}
+                onCopyEndpoint={() => copyEndpoint(station)}
                 isCheckingLatency={checkingStationIds.includes(station.id)}
                 onRefreshLatency={() => refreshStationStatus(station.id)}
               />
@@ -959,7 +992,7 @@ function AdminView({
   probeInfo,
   setView
 }) {
-  const [editing, setEditing] = useState(emptyStation);
+  const [editing, setEditing] = useState(() => createEmptyStation());
   const [saving, setSaving] = useState(false);
 
   if (!user) {
@@ -996,7 +1029,7 @@ function AdminView({
     setSaving(true);
     try {
       await saveStation(editing);
-      setEditing(emptyStation);
+      setEditing(createEmptyStation());
     } finally {
       setSaving(false);
     }
@@ -1013,7 +1046,7 @@ function AdminView({
           <button className="secondary-button" onClick={() => refreshStationStatuses(true)} disabled={statusRefreshing}>
             {statusRefreshing ? "检测中..." : "立即检测延迟"}
           </button>
-          <button className="secondary-button" onClick={() => setEditing(emptyStation)}>
+          <button className="secondary-button" onClick={() => setEditing(createEmptyStation())}>
           <Plus size={18} />
           新增站点
           </button>
@@ -1034,21 +1067,20 @@ function AdminView({
       <div className="admin-grid">
         <form className="admin-form panel-card" onSubmit={submit}>
           <h2>{stations.some((item) => item.id === editing.id) ? "编辑中转站" : "新增中转站"}</h2>
-          <AdminInput label="ID" value={editing.id} onChange={(value) => setEditing({ ...editing, id: slugify(value) })} required />
           <AdminInput label="名称" value={editing.name} onChange={(value) => setEditing({ ...editing, name: value })} required />
           <AdminInput label="直达链接" value={editing.url} onChange={(value) => setEditing({ ...editing, url: value })} required />
           <AdminInput label="一句话描述" value={editing.tagline} onChange={(value) => setEditing({ ...editing, tagline: value })} />
           <AdminTextarea label="详情描述" value={editing.description} onChange={(value) => setEditing({ ...editing, description: value })} />
           <div className="admin-form-row">
             <AdminInput label="分类" value={editing.category} onChange={(value) => setEditing({ ...editing, category: value })} />
-            <AdminInput label="区域" value={editing.region} onChange={(value) => setEditing({ ...editing, region: value })} />
+            <AdminSelect
+              label="区域"
+              value={editing.region}
+              options={["Global", "China"]}
+              onChange={(value) => setEditing({ ...editing, region: value })}
+            />
           </div>
           <div className="admin-form-row">
-            <AdminInput label="延迟 ms" type="number" value={editing.latency} onChange={(value) => setEditing({ ...editing, latency: Number(value) })} />
-            <AdminInput label="评分" type="number" value={editing.score} onChange={(value) => setEditing({ ...editing, score: Number(value) })} />
-          </div>
-          <div className="admin-form-row">
-            <AdminInput label="可用率" value={editing.uptime} onChange={(value) => setEditing({ ...editing, uptime: value })} />
             <label>
               状态
               <select value={editing.status} onChange={(event) => setEditing({ ...editing, status: event.target.value })}>
@@ -1120,6 +1152,21 @@ function AdminInput({ label, value, onChange, type = "text", required = false })
   );
 }
 
+function AdminSelect({ label, value, options, onChange }) {
+  return (
+    <label>
+      {label}
+      <select value={value} onChange={(event) => onChange(event.target.value)}>
+        {options.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
 function AdminTextarea({ label, value, onChange }) {
   return (
     <label>
@@ -1187,14 +1234,6 @@ function splitList(value) {
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
-}
-
-function slugify(value) {
-  return String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9\u4e00-\u9fa5]+/g, "-")
-    .replace(/^-+|-+$/g, "");
 }
 
 function formatRelativeTime(value) {
