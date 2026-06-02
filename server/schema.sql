@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS stations (
   description TEXT NOT NULL,
   url VARCHAR(500) NOT NULL,
   api_endpoint VARCHAR(500) NOT NULL,
+  cdk_url VARCHAR(500) NULL,
   category VARCHAR(80) NOT NULL,
   tags JSON NOT NULL,
   models JSON NOT NULL,

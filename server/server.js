@@ -193,13 +193,16 @@ async function ensureStationColumns() {
      FROM INFORMATION_SCHEMA.COLUMNS
      WHERE TABLE_SCHEMA = DATABASE()
        AND TABLE_NAME = 'stations'
-       AND COLUMN_NAME IN ('api_endpoint', 'icon_url', 'last_checked_at', 'status_error')`
+       AND COLUMN_NAME IN ('api_endpoint', 'cdk_url', 'icon_url', 'last_checked_at', 'status_error')`
   );
   const existing = new Set(columns.map((column) => column.COLUMN_NAME));
 
   if (!existing.has("api_endpoint")) {
     await query("ALTER TABLE stations ADD COLUMN api_endpoint VARCHAR(500) NOT NULL DEFAULT '' AFTER url");
     await query("UPDATE stations SET api_endpoint = url WHERE api_endpoint = ''");
+  }
+  if (!existing.has("cdk_url")) {
+    await query("ALTER TABLE stations ADD COLUMN cdk_url VARCHAR(500) NULL AFTER api_endpoint");
   }
   if (!existing.has("icon_url")) {
     await query("ALTER TABLE stations ADD COLUMN icon_url VARCHAR(500) NULL AFTER icon");
@@ -274,6 +277,7 @@ function toStation(row) {
     description: row.description,
     url: row.url,
     apiEndpoint: row.api_endpoint || row.url,
+    cdkUrl: row.cdk_url || "",
     category: row.category,
     tags: parseJson(row.tags),
     models: parseJson(row.models),
@@ -321,6 +325,7 @@ function normalizeStation(input) {
     description: String(input.description || "").trim(),
     url: String(input.url || "").trim(),
     apiEndpoint: String(input.apiEndpoint || input.api_endpoint || input.url || "").trim(),
+    cdkUrl: String(input.cdkUrl || input.cdk_url || "").trim(),
     category: String(input.category || "未分类").trim(),
     tags: parseJson(input.tags),
     models: parseJson(input.models),
@@ -350,18 +355,18 @@ function normalizeStation(input) {
 async function upsertStation(station) {
   await query(
     `INSERT INTO stations (
-      id, name, tagline, description, url, api_endpoint, category, tags, models, region,
+      id, name, tagline, description, url, api_endpoint, cdk_url, category, tags, models, region,
       latency, uptime, status, security, pricing, launch_label, icon, icon_url, accent,
       featured, score, api_shape, use_cases, docs
     ) VALUES (
-      :id, :name, :tagline, :description, :url, :apiEndpoint, :category, :tags,
+      :id, :name, :tagline, :description, :url, :apiEndpoint, :cdkUrl, :category, :tags,
       :models, :region, :latency, :uptime, :status,
       :security, :pricing, :launchLabel, :icon, :iconUrl, :accent,
       :featured, :score, :apiShape, :useCases, :docs
     )
     ON DUPLICATE KEY UPDATE
       name = VALUES(name), tagline = VALUES(tagline), description = VALUES(description),
-      url = VALUES(url), api_endpoint = VALUES(api_endpoint), category = VALUES(category), tags = VALUES(tags),
+      url = VALUES(url), api_endpoint = VALUES(api_endpoint), cdk_url = VALUES(cdk_url), category = VALUES(category), tags = VALUES(tags),
       models = VALUES(models), region = VALUES(region), latency = VALUES(latency),
       uptime = VALUES(uptime), status = VALUES(status), security = VALUES(security),
       pricing = VALUES(pricing), launch_label = VALUES(launch_label), icon = VALUES(icon), icon_url = VALUES(icon_url),

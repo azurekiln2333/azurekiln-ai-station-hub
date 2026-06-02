@@ -63,6 +63,7 @@ function createEmptyStation() {
     description: "",
     url: "",
     apiEndpoint: "",
+    cdkUrl: "",
     category: "API 接入",
     tags: [],
     models: [],
@@ -705,6 +706,12 @@ function StationCard({
         <button className="secondary-button" onClick={onOpen}>
           查看详情
         </button>
+        {station.cdkUrl && (
+          <a className="secondary-button" href={station.cdkUrl} target="_blank" rel="noreferrer">
+            CDK/签到
+            <ExternalLink size={18} />
+          </a>
+        )}
         <button className="primary-button" onClick={onLaunch}>
           {station.launchLabel}
           <ArrowUpRight size={18} />
@@ -800,6 +807,12 @@ function DetailView({
             点击直达
             <ExternalLink size={18} />
           </button>
+          {station.cdkUrl && (
+            <a className="secondary-button full" href={station.cdkUrl} target="_blank" rel="noreferrer">
+              CDK/签到站
+              <ExternalLink size={18} />
+            </a>
+          )}
           <button className={`secondary-button full ${isFavorite ? "saved" : ""}`} onClick={onFavorite}>
             <Heart size={18} fill={isFavorite ? "currentColor" : "none"} />
             {isFavorite ? "已收藏" : "加入收藏"}
@@ -1086,6 +1099,11 @@ function AdminView({
             label="API 端点"
             value={editing.apiEndpoint || ""}
             onChange={(value) => setEditing({ ...editing, apiEndpoint: value })}
+          />
+          <AdminInput
+            label="CDK/签到站链接"
+            value={editing.cdkUrl || ""}
+            onChange={(value) => setEditing({ ...editing, cdkUrl: value })}
           />
           <AdminInput label="一句话描述" value={editing.tagline} onChange={(value) => setEditing({ ...editing, tagline: value })} />
           <AdminTextarea label="详情描述" value={editing.description} onChange={(value) => setEditing({ ...editing, description: value })} />

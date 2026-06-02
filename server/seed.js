@@ -29,13 +29,13 @@ async function main() {
   for (const station of stations) {
     await connection.execute(
       `INSERT INTO stations (
-        id, name, tagline, description, url, api_endpoint, category, tags, models, region,
+        id, name, tagline, description, url, api_endpoint, cdk_url, category, tags, models, region,
         latency, uptime, status, security, pricing, launch_label, icon, icon_url, accent,
         featured, score, api_shape, use_cases, docs
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON DUPLICATE KEY UPDATE
         name = VALUES(name), tagline = VALUES(tagline), description = VALUES(description),
-        url = VALUES(url), api_endpoint = VALUES(api_endpoint), category = VALUES(category), tags = VALUES(tags),
+        url = VALUES(url), api_endpoint = VALUES(api_endpoint), cdk_url = VALUES(cdk_url), category = VALUES(category), tags = VALUES(tags),
         models = VALUES(models), region = VALUES(region), latency = VALUES(latency),
         uptime = VALUES(uptime), status = VALUES(status), security = VALUES(security),
         pricing = VALUES(pricing), launch_label = VALUES(launch_label), icon = VALUES(icon), icon_url = VALUES(icon_url),
@@ -48,6 +48,7 @@ async function main() {
         station.description,
         station.url,
         station.apiEndpoint || station.url,
+        station.cdkUrl || "",
         station.category,
         JSON.stringify(station.tags),
         JSON.stringify(station.models),
