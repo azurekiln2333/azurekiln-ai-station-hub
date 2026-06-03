@@ -11,6 +11,7 @@ import {
   Edit3,
   ExternalLink,
   Filter,
+  Gift,
   GripVertical,
   Heart,
   History,
@@ -21,6 +22,7 @@ import {
   LogIn,
   LogOut,
   MessagesSquare,
+  MousePointerClick,
   Network,
   Plus,
   Search,
@@ -82,6 +84,8 @@ function createEmptyStation() {
     iconUrl: "",
     accent: "blue",
     featured: false,
+    clickCount: 0,
+    supportsCheckin: false,
     score: 90,
     apiShape: "OpenAI Compatible",
     useCases: [],
@@ -371,6 +375,19 @@ function App() {
   function directLaunch(station) {
     saveRecent(station.id);
     window.open(station.url, "_blank", "noopener,noreferrer");
+    recordStationClick(station.id);
+  }
+
+  async function recordStationClick(stationId) {
+    try {
+      const data = await api(`/api/stations/${stationId}/click`, { method: "POST" });
+      const applyClickCount = (station) =>
+        station.id === stationId ? { ...station, clickCount: data.clickCount } : station;
+      setStations((current) => current.map(applyClickCount));
+      setFavorites((current) => current.map(applyClickCount));
+    } catch {
+      // 直达链接已经打开，统计失败不阻断用户操作。
+    }
   }
 
   async function saveStation(station) {
@@ -744,6 +761,19 @@ function StationCard({
     <article className={`station-card accent-${station.accent} ${featured ? "featured" : ""}`}>
       <div className="card-top">
         <StationIcon station={station} Icon={Icon} className="station-icon" size={26} />
+        <div className="card-meta-badges">
+          <span
+            className={`checkin-badge ${station.supportsCheckin ? "supported" : ""}`}
+            title={station.supportsCheckin ? "支持签到领额度" : "不支持签到领额度"}
+            aria-label={station.supportsCheckin ? "支持签到领额度" : "不支持签到领额度"}
+          >
+            <Gift size={15} />
+          </span>
+          <span className="click-badge" title="点击量">
+            <MousePointerClick size={15} />
+            {formatClickCount(station.clickCount)}
+          </span>
+        </div>
         <button
           className={`bookmark-button ${isFavorite ? "saved" : ""}`}
           onClick={onFavorite}
@@ -1261,6 +1291,20 @@ function AdminView({
           <AdminInput label="强调色" value={editing.accent} onChange={(value) => setEditing({ ...editing, accent: value })} />
           <AdminInput label="按钮文案" value={editing.launchLabel} onChange={(value) => setEditing({ ...editing, launchLabel: value })} />
           <AdminInput label="文档链接" value={editing.docs} onChange={(value) => setEditing({ ...editing, docs: value })} />
+          <AdminInput
+            label="点击量"
+            type="number"
+            value={editing.clickCount || 0}
+            onChange={(value) => setEditing({ ...editing, clickCount: Number(value || 0) })}
+          />
+          <label className="checkbox-label admin-checkbox">
+            <input
+              type="checkbox"
+              checked={Boolean(editing.supportsCheckin)}
+              onChange={(event) => setEditing({ ...editing, supportsCheckin: event.target.checked })}
+            />
+            支持签到领额度
+          </label>
           <label className="checkbox-label admin-checkbox">
             <input
               type="checkbox"
@@ -1433,6 +1477,10 @@ function splitList(value) {
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function formatClickCount(value) {
+  return Number(value || 0).toLocaleString("zh-CN");
 }
 
 function formatRelativeTime(value) {

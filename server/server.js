@@ -164,6 +164,16 @@ app.post("/api/stations/:id/check", async (req, res) => {
   res.json({ status: toStationStatus(rows[0]) });
 });
 
+app.post("/api/stations/:id/click", async (req, res) => {
+  await query("UPDATE stations SET click_count = click_count + 1 WHERE id = :id", { id: req.params.id });
+  const rows = await query("SELECT id, click_count FROM stations WHERE id = :id LIMIT 1", { id: req.params.id });
+  if (!rows[0]) {
+    res.status(404).json({ error: "中转站不存在" });
+    return;
+  }
+  res.json({ id: rows[0].id, clickCount: Number(rows[0].click_count || 0) });
+});
+
 app.get("/api/stations/:id", async (req, res) => {
   const rows = await query("SELECT * FROM stations WHERE id = :id LIMIT 1", { id: req.params.id });
   if (!rows[0]) {
@@ -277,7 +287,7 @@ async function ensureStationColumns() {
      FROM INFORMATION_SCHEMA.COLUMNS
      WHERE TABLE_SCHEMA = DATABASE()
        AND TABLE_NAME = 'stations'
-       AND COLUMN_NAME IN ('api_endpoint', 'cdk_url', 'icon_url', 'last_checked_at', 'status_error', 'sort_order')`
+       AND COLUMN_NAME IN ('api_endpoint', 'cdk_url', 'icon_url', 'last_checked_at', 'status_error', 'sort_order', 'click_count', 'supports_checkin')`
   );
   const existing = new Set(columns.map((column) => column.COLUMN_NAME));
 
@@ -300,6 +310,12 @@ async function ensureStationColumns() {
   if (!existing.has("sort_order")) {
     await query("ALTER TABLE stations ADD COLUMN sort_order INT UNSIGNED NOT NULL DEFAULT 0 AFTER featured");
     await initializeSortOrder();
+  }
+  if (!existing.has("click_count")) {
+    await query("ALTER TABLE stations ADD COLUMN click_count INT UNSIGNED NOT NULL DEFAULT 0 AFTER sort_order");
+  }
+  if (!existing.has("supports_checkin")) {
+    await query("ALTER TABLE stations ADD COLUMN supports_checkin BOOLEAN NOT NULL DEFAULT FALSE AFTER click_count");
   }
 }
 
@@ -481,6 +497,8 @@ function toStation(row) {
     accent: row.accent,
     featured: Boolean(row.featured),
     sortOrder: Number(row.sort_order || 0),
+    clickCount: Number(row.click_count || 0),
+    supportsCheckin: Boolean(row.supports_checkin),
     score: Number(row.score),
     apiShape: row.api_shape,
     useCases: parseJson(row.use_cases),
@@ -528,6 +546,8 @@ function normalizeStation(input) {
     accent: String(input.accent || "blue").trim(),
     featured: Boolean(input.featured),
     sortOrder: Number(input.sortOrder || input.sort_order || 0),
+    clickCount: Number(input.clickCount || input.click_count || 0),
+    supportsCheckin: Boolean(input.supportsCheckin || input.supports_checkin),
     score: Number(input.score || 0),
     apiShape: String(input.apiShape || input.api_shape || "API").trim(),
     useCases: parseJson(input.useCases || input.use_cases),
@@ -545,12 +565,12 @@ async function upsertStation(station) {
     `INSERT INTO stations (
       id, name, tagline, description, url, api_endpoint, cdk_url, category, tags, models, region,
       latency, uptime, status, security, pricing, launch_label, icon, icon_url, accent,
-      featured, sort_order, score, api_shape, use_cases, docs
+      featured, sort_order, click_count, supports_checkin, score, api_shape, use_cases, docs
     ) VALUES (
       :id, :name, :tagline, :description, :url, :apiEndpoint, :cdkUrl, :category, :tags,
       :models, :region, :latency, :uptime, :status,
       :security, :pricing, :launchLabel, :icon, :iconUrl, :accent,
-      :featured, :sortOrder, :score, :apiShape, :useCases, :docs
+      :featured, :sortOrder, :clickCount, :supportsCheckin, :score, :apiShape, :useCases, :docs
     )
     ON DUPLICATE KEY UPDATE
       name = VALUES(name), tagline = VALUES(tagline), description = VALUES(description),
@@ -558,7 +578,8 @@ async function upsertStation(station) {
       models = VALUES(models), region = VALUES(region), latency = VALUES(latency),
       uptime = VALUES(uptime), status = VALUES(status), security = VALUES(security),
       pricing = VALUES(pricing), launch_label = VALUES(launch_label), icon = VALUES(icon), icon_url = VALUES(icon_url),
-      accent = VALUES(accent), featured = VALUES(featured), sort_order = VALUES(sort_order), score = VALUES(score),
+      accent = VALUES(accent), featured = VALUES(featured), sort_order = VALUES(sort_order),
+      click_count = VALUES(click_count), supports_checkin = VALUES(supports_checkin), score = VALUES(score),
       api_shape = VALUES(api_shape), use_cases = VALUES(use_cases), docs = VALUES(docs)`,
     {
       ...station,
@@ -566,7 +587,8 @@ async function upsertStation(station) {
       models: JSON.stringify(station.models),
       security: JSON.stringify(station.security),
       useCases: JSON.stringify(station.useCases),
-      featured: station.featured ? 1 : 0
+      featured: station.featured ? 1 : 0,
+      supportsCheckin: station.supportsCheckin ? 1 : 0
     }
   );
 }

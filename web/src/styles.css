@@ -416,6 +416,49 @@ a {
   gap: 12px;
 }
 
+.card-meta-badges {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.checkin-badge,
+.click-badge {
+  display: inline-flex;
+  min-height: 30px;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--outline);
+  border-radius: 999px;
+  padding: 4px 8px;
+  background: white;
+  color: #111827;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.checkin-badge {
+  width: 30px;
+  justify-content: center;
+  padding: 0;
+}
+
+.checkin-badge.supported {
+  border-color: #f59e0b;
+  background: #fffbeb;
+  color: #d97706;
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.14);
+}
+
+.click-badge {
+  font-family: "JetBrains Mono", monospace;
+}
+
 .station-icon,
 .detail-icon {
   display: inline-grid;
