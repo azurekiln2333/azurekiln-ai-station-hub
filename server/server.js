@@ -287,7 +287,7 @@ async function ensureStationColumns() {
      FROM INFORMATION_SCHEMA.COLUMNS
      WHERE TABLE_SCHEMA = DATABASE()
        AND TABLE_NAME = 'stations'
-       AND COLUMN_NAME IN ('api_endpoint', 'cdk_url', 'icon_url', 'last_checked_at', 'status_error', 'sort_order', 'click_count', 'supports_checkin')`
+       AND COLUMN_NAME IN ('api_endpoint', 'cdk_url', 'icon_url', 'last_checked_at', 'status_error', 'sort_order', 'click_count', 'supports_checkin', 'checkin_quota')`
   );
   const existing = new Set(columns.map((column) => column.COLUMN_NAME));
 
@@ -316,6 +316,9 @@ async function ensureStationColumns() {
   }
   if (!existing.has("supports_checkin")) {
     await query("ALTER TABLE stations ADD COLUMN supports_checkin BOOLEAN NOT NULL DEFAULT FALSE AFTER click_count");
+  }
+  if (!existing.has("checkin_quota")) {
+    await query("ALTER TABLE stations ADD COLUMN checkin_quota VARCHAR(120) NOT NULL DEFAULT '' AFTER supports_checkin");
   }
 }
 
@@ -499,6 +502,7 @@ function toStation(row) {
     sortOrder: Number(row.sort_order || 0),
     clickCount: Number(row.click_count || 0),
     supportsCheckin: Boolean(row.supports_checkin),
+    checkinQuota: row.checkin_quota || "",
     score: Number(row.score),
     apiShape: row.api_shape,
     useCases: parseJson(row.use_cases),
@@ -548,6 +552,7 @@ function normalizeStation(input) {
     sortOrder: Number(input.sortOrder || input.sort_order || 0),
     clickCount: Number(input.clickCount || input.click_count || 0),
     supportsCheckin: Boolean(input.supportsCheckin || input.supports_checkin),
+    checkinQuota: String(input.checkinQuota || input.checkin_quota || "").trim(),
     score: Number(input.score || 0),
     apiShape: String(input.apiShape || input.api_shape || "API").trim(),
     useCases: parseJson(input.useCases || input.use_cases),
@@ -565,12 +570,12 @@ async function upsertStation(station) {
     `INSERT INTO stations (
       id, name, tagline, description, url, api_endpoint, cdk_url, category, tags, models, region,
       latency, uptime, status, security, pricing, launch_label, icon, icon_url, accent,
-      featured, sort_order, click_count, supports_checkin, score, api_shape, use_cases, docs
+      featured, sort_order, click_count, supports_checkin, checkin_quota, score, api_shape, use_cases, docs
     ) VALUES (
       :id, :name, :tagline, :description, :url, :apiEndpoint, :cdkUrl, :category, :tags,
       :models, :region, :latency, :uptime, :status,
       :security, :pricing, :launchLabel, :icon, :iconUrl, :accent,
-      :featured, :sortOrder, :clickCount, :supportsCheckin, :score, :apiShape, :useCases, :docs
+      :featured, :sortOrder, :clickCount, :supportsCheckin, :checkinQuota, :score, :apiShape, :useCases, :docs
     )
     ON DUPLICATE KEY UPDATE
       name = VALUES(name), tagline = VALUES(tagline), description = VALUES(description),
@@ -579,7 +584,8 @@ async function upsertStation(station) {
       uptime = VALUES(uptime), status = VALUES(status), security = VALUES(security),
       pricing = VALUES(pricing), launch_label = VALUES(launch_label), icon = VALUES(icon), icon_url = VALUES(icon_url),
       accent = VALUES(accent), featured = VALUES(featured), sort_order = VALUES(sort_order),
-      click_count = VALUES(click_count), supports_checkin = VALUES(supports_checkin), score = VALUES(score),
+      click_count = VALUES(click_count), supports_checkin = VALUES(supports_checkin), checkin_quota = VALUES(checkin_quota),
+      score = VALUES(score),
       api_shape = VALUES(api_shape), use_cases = VALUES(use_cases), docs = VALUES(docs)`,
     {
       ...station,

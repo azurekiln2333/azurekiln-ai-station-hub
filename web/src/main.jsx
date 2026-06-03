@@ -86,6 +86,7 @@ function createEmptyStation() {
     featured: false,
     clickCount: 0,
     supportsCheckin: false,
+    checkinQuota: "",
     score: 90,
     apiShape: "OpenAI Compatible",
     useCases: [],
@@ -764,10 +765,11 @@ function StationCard({
         <div className="card-meta-badges">
           <span
             className={`checkin-badge ${station.supportsCheckin ? "supported" : ""}`}
-            title={station.supportsCheckin ? "支持签到领额度" : "不支持签到领额度"}
-            aria-label={station.supportsCheckin ? "支持签到领额度" : "不支持签到领额度"}
+            title={getCheckinLabel(station)}
+            aria-label={getCheckinLabel(station)}
           >
             <Gift size={15} />
+            {station.supportsCheckin && station.checkinQuota && <span>{station.checkinQuota}</span>}
           </span>
           <span className="click-badge" title="点击量">
             <MousePointerClick size={15} />
@@ -1305,6 +1307,11 @@ function AdminView({
             />
             支持签到领额度
           </label>
+          <AdminInput
+            label="签到可领额度"
+            value={editing.checkinQuota || ""}
+            onChange={(value) => setEditing({ ...editing, checkinQuota: value })}
+          />
           <label className="checkbox-label admin-checkbox">
             <input
               type="checkbox"
@@ -1481,6 +1488,11 @@ function splitList(value) {
 
 function formatClickCount(value) {
   return Number(value || 0).toLocaleString("zh-CN");
+}
+
+function getCheckinLabel(station) {
+  if (!station.supportsCheckin) return "不支持签到领额度";
+  return station.checkinQuota ? `支持签到领额度：${station.checkinQuota}` : "支持签到领额度";
 }
 
 function formatRelativeTime(value) {

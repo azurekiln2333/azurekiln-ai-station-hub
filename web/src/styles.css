@@ -443,9 +443,9 @@ a {
 }
 
 .checkin-badge {
-  width: 30px;
+  min-width: 30px;
   justify-content: center;
-  padding: 0;
+  padding: 0 8px;
 }
 
 .checkin-badge.supported {
@@ -456,6 +456,10 @@ a {
 }
 
 .click-badge {
+  font-family: "JetBrains Mono", monospace;
+}
+
+.checkin-badge span {
   font-family: "JetBrains Mono", monospace;
 }
 
@@ -1327,6 +1331,15 @@ a {
 .admin-checkbox {
   justify-content: flex-start;
   color: var(--text-muted);
+}
+
+.admin-form .checkbox-label input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  min-width: 16px;
+  padding: 0;
+  border-radius: 4px;
+  flex: 0 0 16px;
 }
 
 .admin-table {
